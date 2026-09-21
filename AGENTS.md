@@ -36,6 +36,12 @@ TEST_DATABASE_URL='postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmod
   binary through `internal/platform/postgres`. Never change an applied
   migration; add a new one.
 
+## Adding a feature
+
+Adding or changing an endpoint, OpenAPI schema, httpapi handler, domain
+service, repository query, or their tests: follow the workflow in
+`docs/adding-a-feature.md` before writing code.
+
 ## Dependency and git discipline
 
 - Prefer the standard library; add dependencies only when an equivalent does
