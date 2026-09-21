@@ -40,7 +40,7 @@ func New(deps Deps) *gin.Engine {
 	r.GET("/healthz", healthz)
 	r.GET("/readyz", readyz(deps.DB))
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{})))
-	openapi.RegisterHandlers(r, handlers.New())
+	openapi.RegisterHandlers(r, handlers.New(deps.Logger, deps.Metrics, deps.DB))
 	mountDocs(r)
 
 	return r

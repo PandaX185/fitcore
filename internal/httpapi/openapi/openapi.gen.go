@@ -190,6 +190,14 @@ type BranchCreateRequest struct {
 	Name      string  `json:"name"`
 }
 
+// BranchPage defines model for BranchPage.
+type BranchPage struct {
+	Items []Branch `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // BranchUpdateRequest defines model for BranchUpdateRequest.
 type BranchUpdateRequest struct {
 	Address   *string  `json:"address,omitempty"`
@@ -479,11 +487,20 @@ type AttendanceID = UUID
 // BookingID Example: 550e8400-e29b-41d4-a716-446655440000
 type BookingID = UUID
 
+// BranchCursor defines model for BranchCursor.
+type BranchCursor = string
+
 // BranchID Example: 550e8400-e29b-41d4-a716-446655440000
 type BranchID = UUID
 
 // BranchIDQuery Example: 550e8400-e29b-41d4-a716-446655440000
 type BranchIDQuery = UUID
+
+// BranchLimit defines model for BranchLimit.
+type BranchLimit = int
+
+// BranchQuery defines model for BranchQuery.
+type BranchQuery = string
 
 // ClassID Example: 550e8400-e29b-41d4-a716-446655440000
 type ClassID = UUID
@@ -520,6 +537,21 @@ type InternalError = Error
 
 // NotFound Example: {"code":"member_not_found","error":"member not found"}
 type NotFound = Error
+
+// ValidationError Example: {"code":"member_not_found","error":"member not found"}
+type ValidationError = Error
+
+// ListBranchesParams defines parameters for ListBranches.
+type ListBranchesParams struct {
+	// Q Free-text search matching branch name or address as a case-insensitive substring
+	Q *BranchQuery `form:"q,omitempty" json:"q,omitempty"`
+
+	// Limit Maximum number of branches to return (default 20, maximum 100)
+	Limit *BranchLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous listBranches response for the next page
+	Cursor *BranchCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
 
 // ListClassesParams defines parameters for ListClasses.
 type ListClassesParams struct {
@@ -604,9 +636,9 @@ type ServerInterface interface {
 	// CancelBooking Cancel a booking
 	// (POST /bookings/{bookingId}/cancel)
 	CancelBooking(c *gin.Context, bookingId BookingID)
-	// ListBranches List all branches
+	// ListBranches List and search branches
 	// (GET /branches)
-	ListBranches(c *gin.Context)
+	ListBranches(c *gin.Context, params ListBranchesParams)
 	// CreateBranch Create a branch
 	// (POST /branches)
 	CreateBranch(c *gin.Context)
@@ -840,6 +872,36 @@ func (siw *ServerInterfaceWrapper) CancelBooking(c *gin.Context) {
 // ListBranches operation middleware
 func (siw *ServerInterfaceWrapper) ListBranches(c *gin.Context) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBranchesParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", c.Request.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter q: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -847,7 +909,7 @@ func (siw *ServerInterfaceWrapper) ListBranches(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListBranches(c)
+	siw.Handler.ListBranches(c, params)
 }
 
 // CreateBranch operation middleware

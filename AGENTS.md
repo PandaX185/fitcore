@@ -32,6 +32,10 @@ TEST_DATABASE_URL='postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmod
 - Sentinels (`ErrNotFound`, `ErrInvalid`, `ErrDuplicateEmail`) are returned by
   the domain and mapped to HTTP status codes by `internal/platform/httpx`.
 - GORM is used only inside persistence adapters, never in `internal/modules`.
+- Branch-style repos live in `internal/platform/postgres/<feature>_repo.go` by
+  design: each one is the adapter for a module's repository port, so it sits
+  with the shared DB, transaction, and connection machinery it uses, while the
+  module keeps only the port interface.
 - SQL migrations live in `migrations/` and are applied via the `cmd/migrate`
   binary through `internal/platform/postgres`. Never change an applied
   migration; add a new one.

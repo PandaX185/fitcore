@@ -56,7 +56,10 @@ Pure Go: no GORM, no gin, no HTTP semantics.
 
 ## Step 4 — Persistence (`internal/platform/postgres/`)
 
-GORM lives only here.
+GORM lives only here. Repos live in `internal/platform/postgres/` by design:
+each `<feature>_repo.go` is the persistence adapter for a module's repository
+port, so it is co-located with the shared DB, transaction, and query
+infrastructure it depends on, while the module keeps only the port interface.
 
 - Add `<feature>_repo.go` implementing the module's port. Base is
   `postgres.DB.Gorm()`. For multi-step writes use
@@ -76,6 +79,12 @@ Replace the 501 stub. The generated wrapper already parsed and validated path
 params (a malformed UUID is a 400 before your method runs).
 
 - Bind the request body, call the service.
+- The adapter consumes the service through a **consumer-owned interface**
+  (e.g. `branchService`) declared in the adapter package with only the methods
+  the endpoint needs; the module's concrete `Service` satisfies it implicitly.
+  Keep it unexported. Promote it into the module (as an exported `XService`
+  interface) only when a second consumer appears. `httpapi.Deps` / the adapter
+  must import domain types, never the other way around.
 - Map sentinels with `httpx.StatusFor(err, ErrNotFound, ErrInvalid, ErrConflict)`
   → 404 / 422 / 409; respond with generated response types via `httpx.JSON`.
 - Unexpected errors go through `httpx.Error(c, logger, metrics, module, op,

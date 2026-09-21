@@ -85,17 +85,21 @@ paths:
   /branches:
     get:
       tags: [branches]
-      summary: List all branches
+      summary: List and search branches
       operationId: listBranches
+      parameters:
+        - $ref: "#/components/parameters/BranchQuery"
+        - $ref: "#/components/parameters/BranchLimit"
+        - $ref: "#/components/parameters/BranchCursor"
       responses:
         "200":
-          description: List of branches
+          description: Page of branches
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Branch"
+                $ref: "#/components/schemas/BranchPage"
+        "422":
+          $ref: "#/components/responses/ValidationError"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
@@ -117,6 +121,8 @@ paths:
                 $ref: "#/components/schemas/Branch"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -157,6 +163,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /members:
     get:
@@ -989,6 +997,32 @@ components:
       schema:
         $ref: "#/components/schemas/UUID"
 
+    BranchQuery:
+      name: q
+      in: query
+      required: false
+      description: >-
+        Free-text search matching branch name or address as a case-insensitive
+        substring
+      schema:
+        type: string
+    BranchLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of branches to return (default 20, maximum 100)
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+    BranchCursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor from a previous listBranches response for the next page
+      schema:
+        type: string
+
   responses:
     BadRequest:
       description: Request body failed validation
@@ -1010,6 +1044,12 @@ components:
             $ref: "#/components/schemas/Error"
     InternalError:
       description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Request is semantically invalid
       content:
         application/json:
           schema:
@@ -1416,6 +1456,18 @@ components:
           $ref: "#/components/schemas/Timestamp"
         updatedAt:
           $ref: "#/components/schemas/Timestamp"
+    BranchPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Branch"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
     BranchCreateRequest:
       type: object
       required: [name, address, latitude, longitude]
