@@ -25,7 +25,7 @@ services:
       FITCORE_ENV: ${FITCORE_ENV:-development}
       HTTP_ADDR: ":8080"
       LOG_LEVEL: info
-      DATABASE_URL: postgres://${POSTGRES_USER:-fitcore}:${POSTGRES_PASSWORD:-fitcore}@postgres:5432/${POSTGRES_DB:-fitcore}?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-fitcore}:${POSTGRES_PASSWORD:-fitcore}@pgbouncer:5432/${POSTGRES_DB:-fitcore}?sslmode=disable
     ports:
       - "${SERVER_PORT:-8080}:8080"
     depends_on:
@@ -44,7 +44,8 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-fitcore}
       DB_HOST: postgres
       DB_NAME: ${POSTGRES_DB:-fitcore}
-      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: session
       MAX_CLIENT_CONN: "100"
       DEFAULT_POOL_SIZE: "20"
     ports:
