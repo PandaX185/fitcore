@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+if ! command -v just >/dev/null 2>&1; then
+    echo "pre-commit: 'just' is required. Install it: https://github.com/casey/just"
+    exit 1
+fi
+
+echo "===> pre-commit: running full pipeline (just check)"
+just check

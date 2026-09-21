@@ -1,0 +1,17 @@
+# Environment and secrets
+.env*
+!.env.example
+
+# Binaries and build output
+bin/
+dist/
+*.exe
+
+# Test artifacts
+coverage.out
+*.prof
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp

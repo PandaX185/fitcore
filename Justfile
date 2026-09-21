@@ -1,0 +1,93 @@
+set positional-arguments
+
+# FitCore development task runner.
+
+export DATABASE_URL := env_var_or_default("DATABASE_URL", "postgres://fitcore:fitcore@localhost:5432/fitcore?sslmode=disable")
+export TEST_DATABASE_URL := env_var_or_default("TEST_DATABASE_URL", "postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmode=disable")
+
+# Show available recipes
+default:
+    @just --list
+
+# Compile the server and CLI binaries
+build:
+    go build ./...
+
+# Run the API server locally
+run:
+    go run ./cmd/server
+
+# Format all Go sources
+fmt:
+    gofmt -w $(find . -name '*.go')
+
+# Verify formatting without modifying files
+fmt-check:
+    @test -z "$(gofmt -l cmd internal api)" || (echo "gofmt needed:"; gofmt -l cmd internal api; exit 1)
+
+# Static analysis
+vet:
+    go vet ./...
+
+# Lint (requires golangci-lint)
+lint:
+    golangci-lint run ./...
+
+# Regenerate OpenAPI server code from api/openapi.yaml
+gen-api:
+    go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0 -config oapi-codegen.yaml api/openapi.yaml
+
+# Fail if generated code is out of date with api/openapi.yaml
+gen-check:
+    @tmp="$(mktemp -d)" && \
+    trap 'rm -rf "$tmp"' EXIT && \
+    sed "s#^output:.*#output: $tmp/openapi.gen.go#" oapi-codegen.yaml > "$tmp/cfg.yaml" && \
+    go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0 -config "$tmp/cfg.yaml" api/openapi.yaml && \
+    diff -q internal/httpapi/openapi/openapi.gen.go "$tmp/openapi.gen.go" && \
+    echo "openapi code is up to date"
+
+# Run the full verification pipeline (local equivalent of CI)
+check:
+    just fmt-check
+    just vet
+    just lint
+    just build
+    just test
+    just gen-check
+
+# Install git pre-commit hooks (core.hooksPath = .githooks)
+install-hooks:
+    git config core.hooksPath .githooks
+    @echo "pre-commit hooks installed"
+
+# Run unit tests
+test:
+    go test ./...
+
+# Run integration tests (requires TEST_DATABASE_URL to point at a live database)
+test-integration:
+    go test -tags integration ./...
+
+# Apply pending migrations
+migrate-up:
+    go run ./cmd/migrate -command up
+
+# Roll back the last N migrations (default 1)
+migrate-down steps='1':
+    go run ./cmd/migrate -command down -steps {{ steps }}
+
+# Show current schema version
+migrate-version:
+    go run ./cmd/migrate -command version
+
+# Create a new migration pair: just migrate-create name=add_things
+migrate-create name:
+    go run ./cmd/migrate -command create -name {{ name }}
+
+# Start the full dev stack
+compose-up:
+    docker compose --project-directory . -f deploy/docker-compose.yml --env-file .env up -d --build
+
+# Stop the dev stack
+compose-down:
+    docker compose --project-directory . -f deploy/docker-compose.yml --env-file .env down

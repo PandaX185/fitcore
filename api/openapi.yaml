@@ -1,0 +1,1548 @@
+openapi: 3.0.3
+info:
+  title: FitCore API
+  version: 0.1.0
+  description: >-
+    Gym management platform covering branches, members, memberships, group
+    classes, bookings, attendance check-in/out, invoicing, staff and trainers.
+    Contract-first: routes are documented ahead of their HTTP adapters, which
+    are implemented incrementally. Authentication is not yet implemented.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: health
+    description: Liveness and readiness probes
+  - name: metrics
+    description: Prometheus metrics
+  - name: branches
+    description: Physical gym locations
+  - name: members
+    description: Member lifecycle
+  - name: memberships
+    description: Membership purchasing and lifecycle
+  - name: packages
+    description: Purchasable membership products
+  - name: classes
+    description: Scheduled group classes
+  - name: bookings
+    description: Class seat reservations
+  - name: attendance
+    description: Member check-ins and check-outs
+  - name: billing
+    description: Invoices and payments
+  - name: staff
+    description: Non-training employees
+  - name: trainers
+    description: Trainers who teach classes and coach members
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      operationId: healthz
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness probe
+      description: Returns 200 when the database responds within 2s.
+      operationId: readyz
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: Database unavailable or not responding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /metrics:
+    get:
+      tags: [metrics]
+      summary: Prometheus metrics scrape endpoint
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /branches:
+    get:
+      tags: [branches]
+      summary: List all branches
+      operationId: listBranches
+      responses:
+        "200":
+          description: List of branches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Branch"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [branches]
+      summary: Create a branch
+      operationId: createBranch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BranchCreateRequest"
+      responses:
+        "201":
+          description: Branch created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /branches/{branchId}:
+    parameters:
+      - $ref: "#/components/parameters/BranchID"
+    get:
+      tags: [branches]
+      summary: Get a branch by ID
+      operationId: getBranch
+      responses:
+        "200":
+          description: Branch found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [branches]
+      summary: Update a branch
+      operationId: updateBranch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BranchUpdateRequest"
+      responses:
+        "200":
+          description: Branch updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Branch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /members:
+    get:
+      tags: [members]
+      summary: List all members
+      operationId: listMembers
+      responses:
+        "200":
+          description: List of members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Member"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [members]
+      summary: Create a member
+      operationId: createMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberCreateRequest"
+      responses:
+        "201":
+          description: Member created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /members/{memberId}:
+    parameters:
+      - $ref: "#/components/parameters/MemberID"
+    get:
+      tags: [members]
+      summary: Get a member by ID
+      operationId: getMember
+      responses:
+        "200":
+          description: Member found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [members]
+      summary: Update a member
+      description: Partial update; only provided fields are changed.
+      operationId: updateMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberUpdateRequest"
+      responses:
+        "200":
+          description: Member updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [members]
+      summary: Delete a member
+      operationId: deleteMember
+      responses:
+        "204":
+          description: Member deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /members/{memberId}/memberships:
+    parameters:
+      - $ref: "#/components/parameters/MemberID"
+    get:
+      tags: [memberships]
+      summary: List a member's membership history
+      operationId: listMemberMemberships
+      responses:
+        "200":
+          description: List of memberships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Membership"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /members/{memberId}/attendance:
+    parameters:
+      - $ref: "#/components/parameters/MemberID"
+    get:
+      tags: [attendance]
+      summary: List a member's attendance records
+      operationId: listMemberAttendance
+      responses:
+        "200":
+          description: List of attendance records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Attendance"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /members/{memberId}/invoices:
+    parameters:
+      - $ref: "#/components/parameters/MemberID"
+    get:
+      tags: [billing]
+      summary: List a member's invoices
+      operationId: listMemberInvoices
+      responses:
+        "200":
+          description: List of invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invoice"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /memberships:
+    post:
+      tags: [memberships]
+      summary: Purchase a membership
+      description: Creates a membership for a member from a package, starting now.
+      operationId: createMembership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MembershipCreateRequest"
+      responses:
+        "201":
+          description: Membership created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /memberships/{membershipId}:
+    parameters:
+      - $ref: "#/components/parameters/MembershipID"
+    get:
+      tags: [memberships]
+      summary: Get a membership by ID
+      operationId: getMembership
+      responses:
+        "200":
+          description: Membership found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [memberships]
+      summary: Update a membership
+      description: Used to freeze, resume or expire a membership.
+      operationId: updateMembership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MembershipUpdateRequest"
+      responses:
+        "200":
+          description: Membership updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /packages:
+    get:
+      tags: [packages]
+      summary: List membership packages
+      operationId: listPackages
+      responses:
+        "200":
+          description: List of packages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Package"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [packages]
+      summary: Create a membership package
+      operationId: createPackage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PackageCreateRequest"
+      responses:
+        "201":
+          description: Package created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Package"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /packages/{packageId}:
+    parameters:
+      - $ref: "#/components/parameters/PackageID"
+    get:
+      tags: [packages]
+      summary: Get a package by ID
+      operationId: getPackage
+      responses:
+        "200":
+          description: Package found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Package"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [packages]
+      summary: Update a package
+      operationId: updatePackage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PackageUpdateRequest"
+      responses:
+        "200":
+          description: Package updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Package"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /classes:
+    get:
+      tags: [classes]
+      summary: List classes
+      description: Optionally filter by branch and trainer.
+      operationId: listClasses
+      parameters:
+        - $ref: "#/components/parameters/BranchIDQuery"
+        - $ref: "#/components/parameters/TrainerIDQuery"
+      responses:
+        "200":
+          description: List of classes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Class"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [classes]
+      summary: Create a class
+      operationId: createClass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClassCreateRequest"
+      responses:
+        "201":
+          description: Class created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Class"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /classes/{classId}:
+    parameters:
+      - $ref: "#/components/parameters/ClassID"
+    get:
+      tags: [classes]
+      summary: Get a class by ID
+      operationId: getClass
+      responses:
+        "200":
+          description: Class found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Class"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [classes]
+      summary: Update a class
+      operationId: updateClass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClassUpdateRequest"
+      responses:
+        "200":
+          description: Class updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Class"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [classes]
+      summary: Delete a class
+      operationId: deleteClass
+      responses:
+        "204":
+          description: Class deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /classes/{classId}/bookings:
+    parameters:
+      - $ref: "#/components/parameters/ClassID"
+    get:
+      tags: [bookings]
+      summary: List bookings for a class
+      operationId: listClassBookings
+      responses:
+        "200":
+          description: List of bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /bookings:
+    post:
+      tags: [bookings]
+      summary: Book a seat in a class
+      description: Fails if the class is at capacity or already fully booked.
+      operationId: createBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingCreateRequest"
+      responses:
+        "201":
+          description: Booking created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /bookings/{bookingId}:
+    parameters:
+      - $ref: "#/components/parameters/BookingID"
+    get:
+      tags: [bookings]
+      summary: Get a booking by ID
+      operationId: getBooking
+      responses:
+        "200":
+          description: Booking found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /bookings/{bookingId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/BookingID"
+    post:
+      tags: [bookings]
+      summary: Cancel a booking
+      description: Frees the class seat; freezes the member's quota.
+      operationId: cancelBooking
+      responses:
+        "200":
+          description: Booking cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /attendance/check-in:
+    post:
+      tags: [attendance]
+      summary: Check a member in
+      description: Requires an active membership for the member at the branch.
+      operationId: checkIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttendanceCheckInRequest"
+      responses:
+        "201":
+          description: Open attendance record created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /attendance/check-out:
+    post:
+      tags: [attendance]
+      summary: Check a member out
+      description: Closes the member's open attendance record.
+      operationId: checkOut
+      responses:
+        "200":
+          description: Closed attendance record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /attendance/{attendanceId}:
+    parameters:
+      - $ref: "#/components/parameters/AttendanceID"
+    get:
+      tags: [attendance]
+      summary: Get an attendance record by ID
+      operationId: getAttendance
+      responses:
+        "200":
+          description: Attendance record found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /invoices:
+    post:
+      tags: [billing]
+      summary: Create an invoice
+      operationId: createInvoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceCreateRequest"
+      responses:
+        "201":
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /invoices/{invoiceId}:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceID"
+    get:
+      tags: [billing]
+      summary: Get an invoice by ID
+      operationId: getInvoice
+      responses:
+        "200":
+          description: Invoice found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [billing]
+      summary: Update an invoice
+      description: Marks an invoice paid, failed or void.
+      operationId: updateInvoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceUpdateRequest"
+      responses:
+        "200":
+          description: Invoice updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /branches/{branchId}/staff:
+    parameters:
+      - $ref: "#/components/parameters/BranchID"
+    get:
+      tags: [staff]
+      summary: List staff at a branch
+      operationId: listBranchStaff
+      responses:
+        "200":
+          description: List of staff
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Staff"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /staff:
+    post:
+      tags: [staff]
+      summary: Create a staff member
+      operationId: createStaff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffCreateRequest"
+      responses:
+        "201":
+          description: Staff member created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Staff"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /staff/{staffId}:
+    parameters:
+      - $ref: "#/components/parameters/StaffID"
+    get:
+      tags: [staff]
+      summary: Get a staff member by ID
+      operationId: getStaff
+      responses:
+        "200":
+          description: Staff member found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Staff"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [staff]
+      summary: Update a staff member
+      operationId: updateStaff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffUpdateRequest"
+      responses:
+        "200":
+          description: Staff member updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Staff"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /branches/{branchId}/trainers:
+    parameters:
+      - $ref: "#/components/parameters/BranchID"
+    get:
+      tags: [trainers]
+      summary: List trainers at a branch
+      operationId: listBranchTrainers
+      responses:
+        "200":
+          description: List of trainers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trainer"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /trainers:
+    post:
+      tags: [trainers]
+      summary: Create a trainer
+      operationId: createTrainer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainerCreateRequest"
+      responses:
+        "201":
+          description: Trainer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trainer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /trainers/{trainerId}:
+    parameters:
+      - $ref: "#/components/parameters/TrainerID"
+    get:
+      tags: [trainers]
+      summary: Get a trainer by ID
+      operationId: getTrainer
+      responses:
+        "200":
+          description: Trainer found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trainer"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [trainers]
+      summary: Update a trainer
+      operationId: updateTrainer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainerUpdateRequest"
+      responses:
+        "200":
+          description: Trainer updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trainer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    BranchID:
+      name: branchId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    MemberID:
+      name: memberId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    MembershipID:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    PackageID:
+      name: packageId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    ClassID:
+      name: classId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    BookingID:
+      name: bookingId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    AttendanceID:
+      name: attendanceId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    InvoiceID:
+      name: invoiceId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    StaffID:
+      name: staffId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    TrainerID:
+      name: trainerId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
+    BranchIDQuery:
+      name: branchId
+      in: query
+      required: false
+      description: Filter by branch
+      schema:
+        $ref: "#/components/schemas/UUID"
+    TrainerIDQuery:
+      name: trainerId
+      in: query
+      required: false
+      description: Filter by trainer
+      schema:
+        $ref: "#/components/schemas/UUID"
+
+  responses:
+    BadRequest:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Request conflicts with the current resource state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    UUID:
+      type: string
+      format: uuid
+      example: 550e8400-e29b-41d4-a716-446655440000
+    Timestamp:
+      type: string
+      format: date-time
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+          example: ok
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message, safe for clients.
+        code:
+          type: string
+          nullable: true
+          description: Stable machine-readable error code.
+      example:
+        error: "member not found"
+        code: "member_not_found"
+
+    MemberStatus:
+      type: string
+      enum: [active, suspended]
+    Member:
+      type: object
+      required: [id, branchId, name, email, phone, status, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        status:
+          $ref: "#/components/schemas/MemberStatus"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    MemberCreateRequest:
+      type: object
+      required: [branchId, name, email]
+      properties:
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+    MemberUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        status:
+          $ref: "#/components/schemas/MemberStatus"
+
+    MembershipStatus:
+      type: string
+      enum: [active, frozen, expired]
+    Membership:
+      type: object
+      required:
+        - id
+        - memberId
+        - packageId
+        - branchId
+        - startsAt
+        - expiresAt
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        packageId:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        startsAt:
+          $ref: "#/components/schemas/Timestamp"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+        status:
+          $ref: "#/components/schemas/MembershipStatus"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    MembershipCreateRequest:
+      type: object
+      required: [memberId, packageId, branchId]
+      properties:
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        packageId:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+    MembershipUpdateRequest:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/MembershipStatus"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    Package:
+      type: object
+      required: [id, name, durationDays, priceCents, currency, active, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        durationDays:
+          type: integer
+          minimum: 1
+        priceCents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: BHD
+        active:
+          type: boolean
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    PackageCreateRequest:
+      type: object
+      required: [name, durationDays, priceCents, currency]
+      properties:
+        name:
+          type: string
+        durationDays:
+          type: integer
+          minimum: 1
+        priceCents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+    PackageUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        durationDays:
+          type: integer
+          minimum: 1
+        priceCents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        active:
+          type: boolean
+
+    Class:
+      type: object
+      required: [id, branchId, name, startsAt, endsAt, capacity, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        trainerId:
+          allOf:
+            - $ref: "#/components/schemas/UUID"
+          nullable: true
+        name:
+          type: string
+        startsAt:
+          $ref: "#/components/schemas/Timestamp"
+        endsAt:
+          $ref: "#/components/schemas/Timestamp"
+        capacity:
+          type: integer
+          minimum: 1
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    ClassCreateRequest:
+      type: object
+      required: [branchId, name, startsAt, endsAt, capacity]
+      properties:
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        trainerId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        startsAt:
+          $ref: "#/components/schemas/Timestamp"
+        endsAt:
+          $ref: "#/components/schemas/Timestamp"
+        capacity:
+          type: integer
+          minimum: 1
+    ClassUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        startsAt:
+          $ref: "#/components/schemas/Timestamp"
+        endsAt:
+          $ref: "#/components/schemas/Timestamp"
+        capacity:
+          type: integer
+          minimum: 1
+
+    BookingStatus:
+      type: string
+      enum: [booked, cancelled]
+    Booking:
+      type: object
+      required: [id, classId, memberId, status, bookedAt, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        classId:
+          $ref: "#/components/schemas/UUID"
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        status:
+          $ref: "#/components/schemas/BookingStatus"
+        bookedAt:
+          $ref: "#/components/schemas/Timestamp"
+        cancelledAt:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          nullable: true
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    BookingCreateRequest:
+      type: object
+      required: [classId, memberId]
+      properties:
+        classId:
+          $ref: "#/components/schemas/UUID"
+        memberId:
+          $ref: "#/components/schemas/UUID"
+
+    Attendance:
+      type: object
+      required: [id, memberId, branchId, checkedInAt, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        membershipId:
+          allOf:
+            - $ref: "#/components/schemas/UUID"
+          nullable: true
+        checkedInAt:
+          $ref: "#/components/schemas/Timestamp"
+        checkedOutAt:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          nullable: true
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    AttendanceCheckInRequest:
+      type: object
+      required: [memberId, branchId]
+      properties:
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+
+    InvoiceStatus:
+      type: string
+      enum: [pending, paid, failed, void]
+    Invoice:
+      type: object
+      required:
+        - id
+        - memberId
+        - membershipId
+        - amountCents
+        - currency
+        - status
+        - dueAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        membershipId:
+          $ref: "#/components/schemas/UUID"
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        status:
+          $ref: "#/components/schemas/InvoiceStatus"
+        dueAt:
+          $ref: "#/components/schemas/Timestamp"
+        paidAt:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          nullable: true
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    InvoiceCreateRequest:
+      type: object
+      required: [memberId, membershipId, amountCents, currency, dueAt]
+      properties:
+        memberId:
+          $ref: "#/components/schemas/UUID"
+        membershipId:
+          $ref: "#/components/schemas/UUID"
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        dueAt:
+          $ref: "#/components/schemas/Timestamp"
+    InvoiceUpdateRequest:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/InvoiceStatus"
+        dueAt:
+          $ref: "#/components/schemas/Timestamp"
+
+    Branch:
+      type: object
+      required: [id, name, address, latitude, longitude, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    BranchCreateRequest:
+      type: object
+      required: [name, address, latitude, longitude]
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+    BranchUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+
+    StaffRole:
+      type: string
+      enum: [manager, front_desk, admin]
+    Staff:
+      type: object
+      required: [id, branchId, name, email, phone, role, active, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          $ref: "#/components/schemas/StaffRole"
+        active:
+          type: boolean
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    StaffCreateRequest:
+      type: object
+      required: [branchId, name, email, role]
+      properties:
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          $ref: "#/components/schemas/StaffRole"
+    StaffUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          $ref: "#/components/schemas/StaffRole"
+        active:
+          type: boolean
+
+    Trainer:
+      type: object
+      required: [id, branchId, name, email, phone, active, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        active:
+          type: boolean
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    TrainerCreateRequest:
+      type: object
+      required: [branchId, name, email]
+      properties:
+        branchId:
+          $ref: "#/components/schemas/UUID"
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+    TrainerUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        active:
+          type: boolean

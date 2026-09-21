@@ -1,0 +1,86 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    name: Full pipeline (just check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install just
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/.local/bin" latest
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run just check
+        run: just check
+
+  lint:
+    name: Lint (annotations)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: fitcore
+          POSTGRES_PASSWORD: fitcore
+          POSTGRES_DB: fitcore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fitcore -d fitcore_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install just
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Migrate schema
+        run: just migrate-up
+        env:
+          DATABASE_URL: postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmode=disable
+      - name: Run integration tests
+        run: just test-integration
+        env:
+          TEST_DATABASE_URL: postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmode=disable
+
+  images:
+    name: Build images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build server image
+        run: docker build -f deploy/Dockerfile.server -t fitcore:ci .
+      - name: Build migrate image
+        run: docker build -f deploy/Dockerfile.migrate -t fitcore-migrate:ci .

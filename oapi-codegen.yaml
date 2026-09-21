@@ -1,0 +1,12 @@
+# Configuration for oapi-codegen. Source of truth: api/openapi.yaml.
+# Regenerate with: just gen-api
+package: openapi
+generate:
+  models: true
+  gin-server: true
+output: internal/httpapi/openapi/openapi.gen.go
+output-options:
+  # health/metrics endpoints stay handcrafted in internal/httpapi/router.go.
+  exclude-tags:
+    - health
+    - metrics

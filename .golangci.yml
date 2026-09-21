@@ -1,0 +1,28 @@
+version: "2"
+
+run:
+  timeout: 3m
+  modules-download-mode: readonly
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - govet
+    - staticcheck
+    - gosec
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+  exclusions:
+    generated: lax
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
