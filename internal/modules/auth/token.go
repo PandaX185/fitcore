@@ -73,7 +73,7 @@ func (t *TokenIssuer) Verify(raw string) (Principal, error) {
 			return nil, fmt.Errorf("unexpected signing method %q", token.Method.Alg())
 		}
 		return t.secret, nil
-	}, jwt.WithValidMethods([]string{tokenMethod}), jwt.WithIssuer(tokenIssuer), jwt.WithExpirationRequired())
+	}, jwt.WithValidMethods([]string{tokenMethod}), jwt.WithIssuer(tokenIssuer), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
 	if err != nil || !parsed.Valid {
 		return Principal{}, fmt.Errorf("%w: %v", ErrInvalidToken, err)
 	}

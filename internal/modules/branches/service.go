@@ -2,6 +2,7 @@ package branches
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -100,6 +101,9 @@ func (s *Service) List(ctx context.Context, p ListParams) (*ListResult, error) {
 }
 
 func validateCoord(latitude, longitude float64) error {
+	if math.IsNaN(latitude) || math.IsNaN(longitude) || math.IsInf(latitude, 0) || math.IsInf(longitude, 0) {
+		return ErrInvalid
+	}
 	if latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
 		return ErrInvalid
 	}

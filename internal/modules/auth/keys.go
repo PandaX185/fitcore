@@ -23,6 +23,16 @@ const (
 	argonSaltLen        = 16
 )
 
+// Ceilings applied when verifying a stored hash. Stored hashes are only ever
+// produced by HashPassword, so any value far outside our own profile indicates
+// store corruption — rejecting it prevents hostile hashes from forcing an
+// argon2 allocation or CPU blow-up on the login path.
+const (
+	maxArgonMemory  uint32 = 1 << 24 // 16M blocks, ~2 GiB worst-case allocation
+	maxArgonTime    uint32 = 32
+	maxArgonThreads uint8  = 64
+)
+
 // HashPassword derives an argon2id PHC string for the given password, e.g.
 // $argon2id$v=19$m=65536,t=1,p=4$<salt>$<hash>. The salt is random per call.
 func HashPassword(password string) (string, error) {
@@ -63,19 +73,58 @@ func VerifyPassword(encoded, password string) (bool, error) {
 	if len(params) != 3 {
 		return false, errors.New("unrecognized argon2 parameters")
 	}
-	if _, err := fmt.Sscanf(params[0], "m=%d", &memory); err != nil {
+	param := map[string]string{}
+	for _, p := range params {
+		k, v, ok := strings.Cut(p, "=")
+		if !ok || v == "" {
+			return false, errors.New("unrecognized argon2 parameters")
+		}
+		param[k] = v
+	}
+	mem, ok := param["m"]
+	if !ok {
+		return false, errors.New("missing argon2 memory parameter")
+	}
+	decoded, err := strconv.ParseUint(mem, 10, 32)
+	if err != nil {
 		return false, fmt.Errorf("parse hash memory: %w", err)
 	}
-	if _, err := fmt.Sscanf(params[1], "t=%d", &timeCost); err != nil {
+	memory = uint32(decoded)
+	tc, ok := param["t"]
+	if !ok {
+		return false, errors.New("missing argon2 time parameter")
+	}
+	decoded, err = strconv.ParseUint(tc, 10, 32)
+	if err != nil {
 		return false, fmt.Errorf("parse hash time: %w", err)
 	}
-	if _, err := fmt.Sscanf(params[2], "p=%d", &threads); err != nil {
+	timeCost = uint32(decoded)
+	par, ok := param["p"]
+	if !ok {
+		return false, errors.New("missing argon2 parallelism parameter")
+	}
+	decoded, err = strconv.ParseUint(par, 10, 8)
+	if err != nil {
 		return false, fmt.Errorf("parse hash threads: %w", err)
+	}
+	threads = uint8(decoded)
+
+	if timeCost < 1 || timeCost > maxArgonTime {
+		return false, errors.New("argon2 time parameter outside supported range")
+	}
+	if threads < 1 || threads > maxArgonThreads {
+		return false, errors.New("argon2 parallelism outside supported range")
+	}
+	if memory < 8*uint32(threads) || memory > maxArgonMemory {
+		return false, errors.New("argon2 memory parameter outside supported range")
 	}
 
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
 		return false, fmt.Errorf("decode salt: %w", err)
+	}
+	if len(salt) == 0 {
+		return false, errors.New("password hash has an empty salt")
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil {
