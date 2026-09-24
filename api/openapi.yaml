@@ -6,11 +6,17 @@ info:
     Gym management platform covering branches, members, memberships, group
     classes, bookings, attendance check-in/out, invoicing, staff and trainers.
     Contract-first: routes are documented ahead of their HTTP adapters, which
-    are implemented incrementally. Authentication is not yet implemented.
+    are implemented incrementally. Every operation except health, metrics and
+    token issuance requires a short-lived Bearer access token (JWT) carrying
+    the caller's permission set; refresh tokens rotate via /auth/refresh.
+security:
+  - BearerAuth: []
 servers:
   - url: http://localhost:8080
     description: Local development
 tags:
+  - name: auth
+    description: Staff authentication and token lifecycle
   - name: health
     description: Liveness and readiness probes
   - name: metrics
@@ -41,6 +47,7 @@ paths:
       tags: [health]
       summary: Liveness probe
       operationId: healthz
+      security: []
       responses:
         "200":
           description: Service is alive
@@ -55,6 +62,7 @@ paths:
       summary: Readiness probe
       description: Returns 200 when the database responds within 2s.
       operationId: readyz
+      security: []
       responses:
         "200":
           description: Service is ready
@@ -74,6 +82,7 @@ paths:
       tags: [metrics]
       summary: Prometheus metrics scrape endpoint
       operationId: getMetrics
+      security: []
       responses:
         "200":
           description: Prometheus text exposition format
@@ -87,6 +96,7 @@ paths:
       tags: [branches]
       summary: List and search branches
       operationId: listBranches
+      x-permission: branches:read
       parameters:
         - $ref: "#/components/parameters/BranchQuery"
         - $ref: "#/components/parameters/BranchLimit"
@@ -106,6 +116,7 @@ paths:
       tags: [branches]
       summary: Create a branch
       operationId: createBranch
+      x-permission: branches:create
       requestBody:
         required: true
         content:
@@ -133,6 +144,7 @@ paths:
       tags: [branches]
       summary: Get a branch by ID
       operationId: getBranch
+      x-permission: branches:read
       responses:
         "200":
           description: Branch found
@@ -146,6 +158,7 @@ paths:
       tags: [branches]
       summary: Update a branch
       operationId: updateBranch
+      x-permission: branches:update
       requestBody:
         required: true
         content:
@@ -166,11 +179,80 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate a staff member
+      description: Verifies credentials and issues a short-lived access token plus a rotating refresh token.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate a refresh token
+      description: >-
+        Exchanges a valid refresh token for a fresh access token (with the
+        staff member's current permissions) and a new refresh token. The
+        presented token is consumed.
+      operationId: refresh
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Log the current session out
+      description: >-
+        Revokes the presented access token's jti and the linked refresh token.
+        Any authenticated staff member may log themselves out.
+      operationId: logout
+      x-permission: ""
+      responses:
+        "204":
+          description: Logged out
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /members:
     get:
       tags: [members]
       summary: List all members
       operationId: listMembers
+      x-permission: members:read
       responses:
         "200":
           description: List of members
@@ -186,6 +268,7 @@ paths:
       tags: [members]
       summary: Create a member
       operationId: createMember
+      x-permission: members:create
       requestBody:
         required: true
         content:
@@ -213,6 +296,7 @@ paths:
       tags: [members]
       summary: Get a member by ID
       operationId: getMember
+      x-permission: members:read
       responses:
         "200":
           description: Member found
@@ -227,6 +311,7 @@ paths:
       summary: Update a member
       description: Partial update; only provided fields are changed.
       operationId: updateMember
+      x-permission: members:update
       requestBody:
         required: true
         content:
@@ -250,6 +335,7 @@ paths:
       tags: [members]
       summary: Delete a member
       operationId: deleteMember
+      x-permission: members:delete
       responses:
         "204":
           description: Member deleted
@@ -265,6 +351,7 @@ paths:
       tags: [memberships]
       summary: List a member's membership history
       operationId: listMemberMemberships
+      x-permission: memberships:read
       responses:
         "200":
           description: List of memberships
@@ -284,6 +371,7 @@ paths:
       tags: [attendance]
       summary: List a member's attendance records
       operationId: listMemberAttendance
+      x-permission: attendance:read
       responses:
         "200":
           description: List of attendance records
@@ -303,6 +391,7 @@ paths:
       tags: [billing]
       summary: List a member's invoices
       operationId: listMemberInvoices
+      x-permission: billing:read
       responses:
         "200":
           description: List of invoices
@@ -321,6 +410,7 @@ paths:
       summary: Purchase a membership
       description: Creates a membership for a member from a package, starting now.
       operationId: createMembership
+      x-permission: memberships:create
       requestBody:
         required: true
         content:
@@ -348,6 +438,7 @@ paths:
       tags: [memberships]
       summary: Get a membership by ID
       operationId: getMembership
+      x-permission: memberships:read
       responses:
         "200":
           description: Membership found
@@ -362,6 +453,7 @@ paths:
       summary: Update a membership
       description: Used to freeze, resume or expire a membership.
       operationId: updateMembership
+      x-permission: memberships:update
       requestBody:
         required: true
         content:
@@ -385,6 +477,7 @@ paths:
       tags: [packages]
       summary: List membership packages
       operationId: listPackages
+      x-permission: packages:read
       responses:
         "200":
           description: List of packages
@@ -400,6 +493,7 @@ paths:
       tags: [packages]
       summary: Create a membership package
       operationId: createPackage
+      x-permission: packages:create
       requestBody:
         required: true
         content:
@@ -425,6 +519,7 @@ paths:
       tags: [packages]
       summary: Get a package by ID
       operationId: getPackage
+      x-permission: packages:read
       responses:
         "200":
           description: Package found
@@ -438,6 +533,7 @@ paths:
       tags: [packages]
       summary: Update a package
       operationId: updatePackage
+      x-permission: packages:update
       requestBody:
         required: true
         content:
@@ -462,6 +558,7 @@ paths:
       summary: List classes
       description: Optionally filter by branch and trainer.
       operationId: listClasses
+      x-permission: classes:read
       parameters:
         - $ref: "#/components/parameters/BranchIDQuery"
         - $ref: "#/components/parameters/TrainerIDQuery"
@@ -480,6 +577,7 @@ paths:
       tags: [classes]
       summary: Create a class
       operationId: createClass
+      x-permission: classes:create
       requestBody:
         required: true
         content:
@@ -507,6 +605,7 @@ paths:
       tags: [classes]
       summary: Get a class by ID
       operationId: getClass
+      x-permission: classes:read
       responses:
         "200":
           description: Class found
@@ -520,6 +619,7 @@ paths:
       tags: [classes]
       summary: Update a class
       operationId: updateClass
+      x-permission: classes:update
       requestBody:
         required: true
         content:
@@ -541,6 +641,7 @@ paths:
       tags: [classes]
       summary: Delete a class
       operationId: deleteClass
+      x-permission: classes:delete
       responses:
         "204":
           description: Class deleted
@@ -556,6 +657,7 @@ paths:
       tags: [bookings]
       summary: List bookings for a class
       operationId: listClassBookings
+      x-permission: bookings:read
       responses:
         "200":
           description: List of bookings
@@ -574,6 +676,7 @@ paths:
       summary: Book a seat in a class
       description: Fails if the class is at capacity or already fully booked.
       operationId: createBooking
+      x-permission: bookings:create
       requestBody:
         required: true
         content:
@@ -603,6 +706,7 @@ paths:
       tags: [bookings]
       summary: Get a booking by ID
       operationId: getBooking
+      x-permission: bookings:read
       responses:
         "200":
           description: Booking found
@@ -621,6 +725,7 @@ paths:
       summary: Cancel a booking
       description: Frees the class seat; freezes the member's quota.
       operationId: cancelBooking
+      x-permission: bookings:update
       responses:
         "200":
           description: Booking cancelled
@@ -639,6 +744,7 @@ paths:
       summary: Check a member in
       description: Requires an active membership for the member at the branch.
       operationId: checkIn
+      x-permission: attendance:create
       requestBody:
         required: true
         content:
@@ -667,6 +773,7 @@ paths:
       summary: Check a member out
       description: Closes the member's open attendance record.
       operationId: checkOut
+      x-permission: attendance:update
       responses:
         "200":
           description: Closed attendance record
@@ -686,6 +793,7 @@ paths:
       tags: [attendance]
       summary: Get an attendance record by ID
       operationId: getAttendance
+      x-permission: attendance:read
       responses:
         "200":
           description: Attendance record found
@@ -701,6 +809,7 @@ paths:
       tags: [billing]
       summary: Create an invoice
       operationId: createInvoice
+      x-permission: billing:create
       requestBody:
         required: true
         content:
@@ -728,6 +837,7 @@ paths:
       tags: [billing]
       summary: Get an invoice by ID
       operationId: getInvoice
+      x-permission: billing:read
       responses:
         "200":
           description: Invoice found
@@ -742,6 +852,7 @@ paths:
       summary: Update an invoice
       description: Marks an invoice paid, failed or void.
       operationId: updateInvoice
+      x-permission: billing:update
       requestBody:
         required: true
         content:
@@ -767,6 +878,7 @@ paths:
       tags: [staff]
       summary: List staff at a branch
       operationId: listBranchStaff
+      x-permission: staff:read
       responses:
         "200":
           description: List of staff
@@ -784,6 +896,7 @@ paths:
       tags: [staff]
       summary: Create a staff member
       operationId: createStaff
+      x-permission: staff:create
       requestBody:
         required: true
         content:
@@ -809,6 +922,7 @@ paths:
       tags: [staff]
       summary: Get a staff member by ID
       operationId: getStaff
+      x-permission: staff:read
       responses:
         "200":
           description: Staff member found
@@ -822,6 +936,7 @@ paths:
       tags: [staff]
       summary: Update a staff member
       operationId: updateStaff
+      x-permission: staff:update
       requestBody:
         required: true
         content:
@@ -847,6 +962,7 @@ paths:
       tags: [trainers]
       summary: List trainers at a branch
       operationId: listBranchTrainers
+      x-permission: trainers:read
       responses:
         "200":
           description: List of trainers
@@ -864,6 +980,7 @@ paths:
       tags: [trainers]
       summary: Create a trainer
       operationId: createTrainer
+      x-permission: trainers:create
       requestBody:
         required: true
         content:
@@ -889,6 +1006,7 @@ paths:
       tags: [trainers]
       summary: Get a trainer by ID
       operationId: getTrainer
+      x-permission: trainers:read
       responses:
         "200":
           description: Trainer found
@@ -902,6 +1020,7 @@ paths:
       tags: [trainers]
       summary: Update a trainer
       operationId: updateTrainer
+      x-permission: trainers:update
       requestBody:
         required: true
         content:
@@ -921,6 +1040,15 @@ paths:
           $ref: "#/components/responses/NotFound"
 
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Short-lived access token issued by POST /auth/login, signed with
+        HMAC-SHA256. Claims include sub (staff id), jti, perms (permission
+        set) and exp.
   parameters:
     BranchID:
       name: branchId
@@ -1054,6 +1182,20 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >-
+        Missing, invalid, expired or revoked credentials. The access token is
+        absent or unacceptable; authenticate via POST /auth/login.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Authenticated but the token's permission set is insufficient
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
   schemas:
     UUID:
@@ -1085,6 +1227,39 @@ components:
       example:
         error: "member not found"
         code: "member_not_found"
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+    LoginResponse:
+      type: object
+      required: [accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived Bearer access token carrying the permission set.
+        refreshToken:
+          type: string
+          description: Opaque rotating credential; consumed and replaced on each refresh.
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds.
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
 
     MemberStatus:
       type: string
@@ -1496,12 +1671,9 @@ components:
           type: number
           format: double
 
-    StaffRole:
-      type: string
-      enum: [manager, front_desk, admin]
     Staff:
       type: object
-      required: [id, branchId, name, email, phone, role, active, createdAt, updatedAt]
+      required: [id, branchId, name, email, phone, permissions, active, createdAt, updatedAt]
       properties:
         id:
           $ref: "#/components/schemas/UUID"
@@ -1514,8 +1686,11 @@ components:
           format: email
         phone:
           type: string
-        role:
-          $ref: "#/components/schemas/StaffRole"
+        permissions:
+          type: array
+          items:
+            type: string
+            example: branches:read
         active:
           type: boolean
         createdAt:
@@ -1524,7 +1699,7 @@ components:
           $ref: "#/components/schemas/Timestamp"
     StaffCreateRequest:
       type: object
-      required: [branchId, name, email, role]
+      required: [branchId, name, email]
       properties:
         branchId:
           $ref: "#/components/schemas/UUID"
@@ -1535,8 +1710,11 @@ components:
           format: email
         phone:
           type: string
-        role:
-          $ref: "#/components/schemas/StaffRole"
+        permissions:
+          type: array
+          items:
+            type: string
+            example: branches:read
     StaffUpdateRequest:
       type: object
       properties:
@@ -1547,8 +1725,11 @@ components:
           format: email
         phone:
           type: string
-        role:
-          $ref: "#/components/schemas/StaffRole"
+        permissions:
+          type: array
+          items:
+            type: string
+            example: branches:read
         active:
           type: boolean
 

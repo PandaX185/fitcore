@@ -26,10 +26,16 @@ services:
       HTTP_ADDR: ":8080"
       LOG_LEVEL: info
       DATABASE_URL: postgres://${POSTGRES_USER:-fitcore}:${POSTGRES_PASSWORD:-fitcore}@pgbouncer:5432/${POSTGRES_DB:-fitcore}?sslmode=disable
+      TOKEN_SECRET: ${TOKEN_SECRET:-dev-only-token-secret-change-me-in-prod-1234}
+      TOKEN_TTL: ${TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-168h}
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "${SERVER_PORT:-8080}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
@@ -53,6 +59,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   prometheus:
     image: prom/prometheus:v2.53.0

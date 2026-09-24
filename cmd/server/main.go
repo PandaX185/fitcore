@@ -13,8 +13,10 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/config"
 	"github.com/PandaX185/fitcore/internal/httpapi"
+	"github.com/PandaX185/fitcore/internal/modules/auth"
 	"github.com/PandaX185/fitcore/internal/platform/logging"
 	"github.com/PandaX185/fitcore/internal/platform/postgres"
+	"github.com/PandaX185/fitcore/internal/platform/redis"
 	"github.com/PandaX185/fitcore/internal/platform/telemetry"
 )
 
@@ -40,11 +42,27 @@ func run() error {
 	}
 	defer func() { _ = db.Close() }()
 
+	redisClient, err := redis.Open(ctx, cfg.RedisURL)
+	if err != nil {
+		return fmt.Errorf("open redis: %w", err)
+	}
+	defer func() { _ = redisClient.Close() }()
+
+	issuer, err := auth.NewTokenIssuer([]byte(cfg.TokenSecret), cfg.AccessTokenTTL)
+	if err != nil {
+		return fmt.Errorf("init token issuer: %w", err)
+	}
+	authRepo := postgres.NewAuthRepository(db)
+	revocations := redis.NewRevocationStore(redisClient)
+	authSvc := auth.NewService(authRepo, authRepo, revocations, issuer, cfg.AccessTokenTTL, cfg.RefreshTTL)
+
 	metrics := telemetry.New()
 	router := httpapi.New(httpapi.Deps{
-		Logger:  log,
-		Metrics: metrics,
-		DB:      db,
+		Logger:      log,
+		Metrics:     metrics,
+		DB:          db,
+		Auth:        authSvc,
+		Revocations: revocations,
 	})
 
 	srv := &http.Server{

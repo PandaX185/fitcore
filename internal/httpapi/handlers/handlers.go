@@ -15,6 +15,7 @@ import (
 // are embedded so their promoted methods cover the whole interface; each is
 // filled in as its domain logic lands.
 type Handler struct {
+	*authHandler
 	*branchesHandler
 	*members
 	*memberships
@@ -27,9 +28,14 @@ type Handler struct {
 	*trainers
 }
 
-func New(log *slog.Logger, metrics *telemetry.Metrics, db *postgres.DB) *Handler {
+func New(log *slog.Logger, metrics *telemetry.Metrics, db *postgres.DB, authSvc authService) *Handler {
 	branchSvc := branches.NewService(postgres.NewBranchRepository(db))
 	return &Handler{
+		authHandler: &authHandler{
+			svc:     authSvc,
+			log:     log,
+			metrics: metrics,
+		},
 		branchesHandler: &branchesHandler{
 			svc:     branchSvc,
 			log:     log,

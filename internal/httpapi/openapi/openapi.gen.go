@@ -94,27 +94,6 @@ func (e MembershipStatus) Valid() bool {
 	}
 }
 
-// Defines values for StaffRole.
-const (
-	Admin     StaffRole = "admin"
-	FrontDesk StaffRole = "front_desk"
-	Manager   StaffRole = "manager"
-)
-
-// Valid indicates whether the value is a known member of the StaffRole enum.
-func (e StaffRole) Valid() bool {
-	switch e {
-	case Admin:
-		return true
-	case FrontDesk:
-		return true
-	case Manager:
-		return true
-	default:
-		return false
-	}
-}
-
 // Attendance defines model for Attendance.
 type Attendance struct {
 	// BranchId Example: 550e8400-e29b-41d4-a716-446655440000
@@ -294,6 +273,25 @@ type InvoiceUpdateRequest struct {
 	Status *InvoiceStatus `json:"status,omitempty"`
 }
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Email    openapi_types.Email `json:"email"`
+	Password string              `json:"password"`
+}
+
+// LoginResponse defines model for LoginResponse.
+type LoginResponse struct {
+	// AccessToken Short-lived Bearer access token carrying the permission set.
+	AccessToken string `json:"accessToken"`
+
+	// ExpiresIn Access token lifetime in seconds.
+	ExpiresIn int `json:"expiresIn"`
+
+	// RefreshToken Opaque rotating credential; consumed and replaced on each refresh.
+	RefreshToken string `json:"refreshToken"`
+	TokenType    string `json:"tokenType"`
+}
+
 // Member defines model for Member.
 type Member struct {
 	// BranchId Example: 550e8400-e29b-41d4-a716-446655440000
@@ -403,6 +401,11 @@ type PackageUpdateRequest struct {
 	PriceCents   *int64  `json:"priceCents,omitempty"`
 }
 
+// RefreshRequest defines model for RefreshRequest.
+type RefreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
 // Staff defines model for Staff.
 type Staff struct {
 	Active bool `json:"active"`
@@ -413,33 +416,30 @@ type Staff struct {
 	Email     openapi_types.Email `json:"email"`
 
 	// Id Example: 550e8400-e29b-41d4-a716-446655440000
-	Id        UUID      `json:"id"`
-	Name      string    `json:"name"`
-	Phone     string    `json:"phone"`
-	Role      StaffRole `json:"role"`
-	UpdatedAt Timestamp `json:"updatedAt"`
+	Id          UUID      `json:"id"`
+	Name        string    `json:"name"`
+	Permissions []string  `json:"permissions"`
+	Phone       string    `json:"phone"`
+	UpdatedAt   Timestamp `json:"updatedAt"`
 }
 
 // StaffCreateRequest defines model for StaffCreateRequest.
 type StaffCreateRequest struct {
 	// BranchId Example: 550e8400-e29b-41d4-a716-446655440000
-	BranchId UUID                `json:"branchId"`
-	Email    openapi_types.Email `json:"email"`
-	Name     string              `json:"name"`
-	Phone    *string             `json:"phone,omitempty"`
-	Role     StaffRole           `json:"role"`
+	BranchId    UUID                `json:"branchId"`
+	Email       openapi_types.Email `json:"email"`
+	Name        string              `json:"name"`
+	Permissions *[]string           `json:"permissions,omitempty"`
+	Phone       *string             `json:"phone,omitempty"`
 }
-
-// StaffRole defines model for StaffRole.
-type StaffRole string
 
 // StaffUpdateRequest defines model for StaffUpdateRequest.
 type StaffUpdateRequest struct {
-	Active *bool                `json:"active,omitempty"`
-	Email  *openapi_types.Email `json:"email,omitempty"`
-	Name   *string              `json:"name,omitempty"`
-	Phone  *string              `json:"phone,omitempty"`
-	Role   *StaffRole           `json:"role,omitempty"`
+	Active      *bool                `json:"active,omitempty"`
+	Email       *openapi_types.Email `json:"email,omitempty"`
+	Name        *string              `json:"name,omitempty"`
+	Permissions *[]string            `json:"permissions,omitempty"`
+	Phone       *string              `json:"phone,omitempty"`
 }
 
 // Timestamp defines model for Timestamp.
@@ -538,6 +538,9 @@ type InternalError = Error
 // NotFound Example: {"code":"member_not_found","error":"member not found"}
 type NotFound = Error
 
+// Unauthorized Example: {"code":"member_not_found","error":"member not found"}
+type Unauthorized = Error
+
 // ValidationError Example: {"code":"member_not_found","error":"member not found"}
 type ValidationError = Error
 
@@ -564,6 +567,12 @@ type ListClassesParams struct {
 
 // CheckInJSONRequestBody defines body for CheckIn for application/json ContentType.
 type CheckInJSONRequestBody = AttendanceCheckInRequest
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
+// RefreshJSONRequestBody defines body for Refresh for application/json ContentType.
+type RefreshJSONRequestBody = RefreshRequest
 
 // CreateBookingJSONRequestBody defines body for CreateBooking for application/json ContentType.
 type CreateBookingJSONRequestBody = BookingCreateRequest
@@ -627,6 +636,15 @@ type ServerInterface interface {
 	// GetAttendance Get an attendance record by ID
 	// (GET /attendance/{attendanceId})
 	GetAttendance(c *gin.Context, attendanceId AttendanceID)
+	// Login Authenticate a staff member
+	// (POST /auth/login)
+	Login(c *gin.Context)
+	// Logout Log the current session out
+	// (POST /auth/logout)
+	Logout(c *gin.Context)
+	// Refresh Rotate a refresh token
+	// (POST /auth/refresh)
+	Refresh(c *gin.Context)
 	// CreateBooking Book a seat in a class
 	// (POST /bookings)
 	CreateBooking(c *gin.Context)
@@ -804,6 +822,45 @@ func (siw *ServerInterfaceWrapper) GetAttendance(c *gin.Context) {
 	}
 
 	siw.Handler.GetAttendance(c, attendanceId)
+}
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Login(c)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Logout(c)
+}
+
+// Refresh operation middleware
+func (siw *ServerInterfaceWrapper) Refresh(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Refresh(c)
 }
 
 // CreateBooking operation middleware
@@ -1708,6 +1765,9 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/branches", wrapper.CreateBranch)
 	router.GET(options.BaseURL+"/branches/:branchId", wrapper.GetBranch)
 	router.PATCH(options.BaseURL+"/branches/:branchId", wrapper.UpdateBranch)
+	router.POST(options.BaseURL+"/auth/login", wrapper.Login)
+	router.POST(options.BaseURL+"/auth/refresh", wrapper.Refresh)
+	router.POST(options.BaseURL+"/auth/logout", wrapper.Logout)
 	router.GET(options.BaseURL+"/members", wrapper.ListMembers)
 	router.POST(options.BaseURL+"/members", wrapper.CreateMember)
 	router.DELETE(options.BaseURL+"/members/:memberId", wrapper.DeleteMember)

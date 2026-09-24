@@ -12,6 +12,7 @@ import (
 	"github.com/PandaX185/fitcore/internal/httpapi/handlers"
 	"github.com/PandaX185/fitcore/internal/httpapi/middleware"
 	"github.com/PandaX185/fitcore/internal/httpapi/openapi"
+	"github.com/PandaX185/fitcore/internal/modules/auth"
 	"github.com/PandaX185/fitcore/internal/platform/postgres"
 	"github.com/PandaX185/fitcore/internal/platform/telemetry"
 )
@@ -20,6 +21,10 @@ type Deps struct {
 	Logger  *slog.Logger
 	Metrics *telemetry.Metrics
 	DB      *postgres.DB
+	// Auth is the composed auth service (login/refresh/logout + token verify).
+	Auth *auth.Service
+	// Revocations rejects compromised/rotated access-token ids.
+	Revocations auth.RevocationStore
 }
 
 // New builds the Gin engine. Module routes are mounted as their HTTP adapters
@@ -36,11 +41,12 @@ func New(deps Deps) *gin.Engine {
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLog(deps.Logger))
 	r.Use(middleware.Metrics(deps.Metrics))
+	r.Use(middleware.NewAuthGuard(deps.Auth, deps.Revocations, middleware.DefaultRegistry(), deps.Logger).Gin())
 
 	r.GET("/healthz", healthz)
 	r.GET("/readyz", readyz(deps.DB))
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{})))
-	openapi.RegisterHandlers(r, handlers.New(deps.Logger, deps.Metrics, deps.DB))
+	openapi.RegisterHandlers(r, handlers.New(deps.Logger, deps.Metrics, deps.DB, deps.Auth))
 	mountDocs(r)
 
 	return r
