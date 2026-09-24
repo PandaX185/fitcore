@@ -1,4 +1,4 @@
-// Package billing implements invoicing and payments for FitCore.
+// Package billing models invoices issued to members for their memberships.
 package billing
 
 import (
@@ -8,9 +8,14 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrNotFound = errors.New("invoice not found")
+var (
+	ErrNotFound           = errors.New("invoice not found")
+	ErrInvalidInput       = errors.New("invalid invoice input")
+	ErrMemberNotFound     = errors.New("member not found")
+	ErrMembershipNotFound = errors.New("membership not found")
+)
 
-// InvoiceStatus describes the lifecycle state of an invoice.
+// InvoiceStatus describes the lifecycle of an invoice.
 type InvoiceStatus string
 
 const (
@@ -20,7 +25,7 @@ const (
 	StatusVoid    InvoiceStatus = "void"
 )
 
-// Invoice is the application-facing invoice record.
+// Invoice is a charge against a member's membership.
 type Invoice struct {
 	ID           uuid.UUID
 	MemberID     uuid.UUID
@@ -32,4 +37,10 @@ type Invoice struct {
 	PaidAt       *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+// Patch is a partial update. Nil fields are left unchanged.
+type Patch struct {
+	Status *InvoiceStatus
+	DueAt  *time.Time
 }

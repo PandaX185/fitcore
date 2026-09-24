@@ -10,8 +10,11 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("membership or package not found")
-	ErrInvalidInput = errors.New("invalid membership input")
+	ErrNotFound        = errors.New("membership not found")
+	ErrInvalidInput    = errors.New("invalid membership input")
+	ErrDuplicateActive = errors.New("member already has an active membership")
+	ErrMemberNotFound  = errors.New("member not found")
+	ErrPackageNotFound = errors.New("package not found")
 )
 
 // Status describes the lifecycle state of a membership.
@@ -36,14 +39,8 @@ type Membership struct {
 	UpdatedAt time.Time
 }
 
-// Package is a purchasable membership product.
-type Package struct {
-	ID           uuid.UUID
-	Name         string
-	DurationDays int
-	PriceCents   int64
-	Currency     string
-	Active       bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+// Patch is a partial update. Nil fields are left unchanged.
+type Patch struct {
+	Status    *Status
+	ExpiresAt *time.Time
 }

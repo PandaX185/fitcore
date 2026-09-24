@@ -8,7 +8,14 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrNotFound = errors.New("booking not found")
+var (
+	ErrNotFound       = errors.New("booking not found")
+	ErrInvalidInput   = errors.New("invalid booking input")
+	ErrClassNotFound  = errors.New("class not found")
+	ErrMemberNotFound = errors.New("member not found")
+	ErrClassFull      = errors.New("class is full")
+	ErrDuplicate      = errors.New("member already booked this class")
+)
 
 // BookingStatus describes the lifecycle state of a class booking.
 type BookingStatus string

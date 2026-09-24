@@ -119,6 +119,12 @@ type AttendanceCheckInRequest struct {
 	MemberId UUID `json:"memberId"`
 }
 
+// AttendanceCheckOutRequest defines model for AttendanceCheckOutRequest.
+type AttendanceCheckOutRequest struct {
+	// MemberId Example: 550e8400-e29b-41d4-a716-446655440000
+	MemberId UUID `json:"memberId"`
+}
+
 // Booking defines model for Booking.
 type Booking struct {
 	BookedAt    Timestamp  `json:"bookedAt"`
@@ -567,6 +573,9 @@ type ListClassesParams struct {
 
 // CheckInJSONRequestBody defines body for CheckIn for application/json ContentType.
 type CheckInJSONRequestBody = AttendanceCheckInRequest
+
+// CheckOutJSONRequestBody defines body for CheckOut for application/json ContentType.
+type CheckOutJSONRequestBody = AttendanceCheckOutRequest
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
