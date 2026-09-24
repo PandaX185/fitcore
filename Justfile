@@ -87,17 +87,18 @@ migrate-create name:
 
 # Start the full dev stack
 compose-up:
-    docker compose --project-directory . -f deploy/docker-compose.yml --env-file .env up -d --build
+    docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
 
 # Stop the dev stack
 compose-down:
-    docker compose --project-directory . -f deploy/docker-compose.yml --env-file .env down
+    docker compose -f deploy/docker-compose.yml --env-file .env down
 
 # Run manual smoke flows against the live stack (scripts/smoke/): requires
 # compose-up + migrations applied; seeds the auth-flow staff account on demand.
 smoke email='admin@fitcore.local' password='Password1!':
-    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,memberships:read,classes:read,staff:read,trainers:read'
+    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,classes:read,staff:read,trainers:read'
     @go run ./cmd/set-password -email viewer@fitcore.local -password {{ password }} -perms 'branches:read'
     @scripts/smoke/health_flow.sh
     @SMOKE_EMAIL={{ email }} SMOKE_PASSWORD={{ password }} scripts/smoke/auth_flow.sh
     @scripts/smoke/branches_flow.sh
+    @scripts/smoke/members_flow.sh

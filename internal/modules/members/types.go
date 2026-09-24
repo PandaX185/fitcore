@@ -33,3 +33,11 @@ type Member struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// Patch is a partial update. Nil fields are left unchanged.
+type Patch struct {
+	Name   *string
+	Email  *string
+	Phone  *string
+	Status *Status
+}

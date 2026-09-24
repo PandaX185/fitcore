@@ -19,6 +19,9 @@ func Open(ctx context.Context, databaseURL string) (*DB, error) {
 		DSN: databaseURL,
 	}), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
+		// TranslateError maps PG error codes (e.g. 23505 unique violation) to
+		// gorm sentinels like gorm.ErrDuplicatedKey so callers can map them.
+		TranslateError: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open gorm connection: %w", err)

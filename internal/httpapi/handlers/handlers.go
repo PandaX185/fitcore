@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/PandaX185/fitcore/internal/modules/branches"
+	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/platform/postgres"
 	"github.com/PandaX185/fitcore/internal/platform/telemetry"
 )
@@ -17,7 +18,7 @@ import (
 type Handler struct {
 	*authHandler
 	*branchesHandler
-	*members
+	*membersHandler
 	*memberships
 	*packages
 	*classes
@@ -30,6 +31,7 @@ type Handler struct {
 
 func New(log *slog.Logger, metrics *telemetry.Metrics, db *postgres.DB, authSvc authService) *Handler {
 	branchSvc := branches.NewService(postgres.NewBranchRepository(db))
+	memberSvc := members.NewService(postgres.NewMemberRepository(db))
 	return &Handler{
 		authHandler: &authHandler{
 			svc:     authSvc,
@@ -41,7 +43,11 @@ func New(log *slog.Logger, metrics *telemetry.Metrics, db *postgres.DB, authSvc 
 			log:     log,
 			metrics: metrics,
 		},
-		members:     &members{},
+		membersHandler: &membersHandler{
+			svc:     memberSvc,
+			log:     log,
+			metrics: metrics,
+		},
 		memberships: &memberships{},
 		packages:    &packages{},
 		classes:     &classes{},
