@@ -95,7 +95,7 @@ compose-down:
 
 # Seed the staff accounts used by the smoke flows (and reports)
 seed-smoke email='admin@fitcore.local' password='Password1!':
-    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,classes:read,staff:read,trainers:read'
+    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,memberships:create,memberships:update,packages:read,packages:create,packages:update,classes:read,classes:create,classes:update,classes:delete,bookings:read,bookings:create,bookings:update,attendance:read,attendance:create,attendance:update,billing:read,billing:create,billing:update,staff:read,staff:create,staff:update,trainers:read,trainers:create,trainers:update'
     @go run ./cmd/set-password -email viewer@fitcore.local -password {{ password }} -perms 'branches:read'
 
 # Run manual smoke flows against the live stack (scripts/smoke/): requires
@@ -106,6 +106,14 @@ smoke email='admin@fitcore.local' password='Password1!':
     @SMOKE_EMAIL={{ email }} SMOKE_PASSWORD={{ password }} scripts/smoke/auth_flow.sh
     @scripts/smoke/branches_flow.sh
     @scripts/smoke/members_flow.sh
+    @scripts/smoke/packages_flow.sh
+    @scripts/smoke/memberships_flow.sh
+    @scripts/smoke/classes_flow.sh
+    @scripts/smoke/bookings_flow.sh
+    @scripts/smoke/attendance_flow.sh
+    @scripts/smoke/billing_flow.sh
+    @scripts/smoke/staff_flow.sh
+    @scripts/smoke/trainers_flow.sh
 
 # Produce a full test report (scripts/report-tests.sh): unit+integration tests
 # with coverage, race detection, pass/fail counts + reasons, then the smoke

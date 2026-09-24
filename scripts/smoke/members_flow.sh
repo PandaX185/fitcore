@@ -44,7 +44,7 @@ BR_ID=$(printf '%s' "$SMOKE_BODY" | json_get id)
 
 # 4. Create a member; the unique email makes the duplicate-email case reliable.
 MB_NAME="SmokeMember-$(date +%s)"
-MB_EMAIL="$(date +%s)@smoke.local"
+MB_EMAIL="$(date +%s%N)@smoke.local"
 req POST /members 201 "$(python3 -c 'import json,sys
 print(json.dumps({"branchId": sys.argv[1], "name": sys.argv[2],
                     "email": sys.argv[3], "phone": "5550100"}))' "$BR_ID" "$MB_NAME" "$MB_EMAIL")" \

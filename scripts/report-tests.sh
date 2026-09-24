@@ -13,7 +13,8 @@
 #      (integration tags include the plain unit suite; requires
 #      TEST_DATABASE_URL / TEST_REDIS_URL to point at live services)
 #   2. seeds the smoke staff accounts (just seed-smoke)
-#   3. the health/auth/branches/members smoke flows against $SMOKE_BASE
+#   3. the health/auth/branches/members/packages/memberships/classes/bookings/
+#      attendance/billing/staff/trainers smoke flows against $SMOKE_BASE
 #
 # Environment:
 #   SMOKE_BASE (default http://localhost:8080) — base URL of the running API
@@ -178,6 +179,14 @@ run_flow health_flow "$ROOT_DIR/scripts/smoke/health_flow.sh"
 run_flow auth_flow "$ROOT_DIR/scripts/smoke/auth_flow.sh"
 run_flow branches_flow "$ROOT_DIR/scripts/smoke/branches_flow.sh"
 run_flow members_flow "$ROOT_DIR/scripts/smoke/members_flow.sh"
+run_flow packages_flow "$ROOT_DIR/scripts/smoke/packages_flow.sh"
+run_flow memberships_flow "$ROOT_DIR/scripts/smoke/memberships_flow.sh"
+run_flow classes_flow "$ROOT_DIR/scripts/smoke/classes_flow.sh"
+run_flow bookings_flow "$ROOT_DIR/scripts/smoke/bookings_flow.sh"
+run_flow attendance_flow "$ROOT_DIR/scripts/smoke/attendance_flow.sh"
+run_flow billing_flow "$ROOT_DIR/scripts/smoke/billing_flow.sh"
+run_flow staff_flow "$ROOT_DIR/scripts/smoke/staff_flow.sh"
+run_flow trainers_flow "$ROOT_DIR/scripts/smoke/trainers_flow.sh"
 SMOKE_SECS=$SECONDS
 
 # --- footer ------------------------------------------------------------------
