@@ -4,6 +4,7 @@ set positional-arguments
 
 export DATABASE_URL := env_var_or_default("DATABASE_URL", "postgres://fitcore:fitcore@localhost:5432/fitcore?sslmode=disable")
 export TEST_DATABASE_URL := env_var_or_default("TEST_DATABASE_URL", "postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmode=disable")
+export TEST_REDIS_URL := env_var_or_default("TEST_REDIS_URL", "redis://localhost:6379/1")
 
 # Show available recipes
 default:
@@ -91,3 +92,12 @@ compose-up:
 # Stop the dev stack
 compose-down:
     docker compose --project-directory . -f deploy/docker-compose.yml --env-file .env down
+
+# Run manual smoke flows against the live stack (scripts/smoke/): requires
+# compose-up + migrations applied; seeds the auth-flow staff account on demand.
+smoke email='admin@fitcore.local' password='Password1!':
+    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,memberships:read,classes:read,staff:read,trainers:read'
+    @go run ./cmd/set-password -email viewer@fitcore.local -password {{ password }} -perms 'branches:read'
+    @scripts/smoke/health_flow.sh
+    @SMOKE_EMAIL={{ email }} SMOKE_PASSWORD={{ password }} scripts/smoke/auth_flow.sh
+    @scripts/smoke/branches_flow.sh

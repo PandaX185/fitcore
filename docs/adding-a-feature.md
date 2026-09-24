@@ -115,12 +115,27 @@ params (a malformed UUID is a 400 before your method runs).
 just check
 ```
 
-(fmt → vet → lint → build → test → gen-check). Then smoke-test the running
-server against compose Postgres and curl the new route. The pre-commit hook
-re-runs `just check`; CI mirrors it and adds integration tests.
+(fmt → vet → lint → build → test → gen-check). Then run the live smoke flows:
 
-- [ ] `just check` is green and the smoke test shows the new route, the spec
-      and Swagger UI behaving.
+```
+just compose-up
+just migrate-up
+just smoke
+```
+
+(`just smoke` seeds a staff account, then runs every flow in `scripts/smoke/`
+against the real API.)
+ 
+- [ ] Add (or extend) a module flow in `scripts/smoke/` covering every endpoint
+      of the new feature with proper auth — the concept evolves with each
+      feature, so a feature without a flow is not done. Per-endpoint
+      `PASS|FAIL <METHOD> <path> → <got> (want <want>)` with the error
+      pinpointed on failure, nonzero exit on any `FAIL`, and at least one
+      negative case (e.g. 403/401) per new endpoint.
+- [ ] The new flow is wired into the `smoke` Justfile recipe.
+- [ ] `just check` is green and `just smoke` is green against the live stack
+      (Swagger UI and the spec behave too). The pre-commit hook re-runs
+      `just check`; CI mirrors it and adds integration tests.
 
 ## Done
 

@@ -22,6 +22,20 @@ TEST_DATABASE_URL='postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmod
   go test -tags integration ./...
 ```
 
+Live smoke flows (`scripts/smoke/`, wired into `just smoke`) exercise the real
+API + infra against a running stack. They are a permanent, evolving part of the
+architecture: every new feature extends or adds a module flow. Run them with:
+
+```
+just compose-up
+just migrate-up
+just smoke
+```
+
+(`just smoke` seeds the admin staff account with `cmd/set-password`, then runs
+health/auth flows and reports `PASS|FAIL <METHOD> <path> → <got> (want <want>)`
+per endpoint, exiting nonzero on any failure.)
+
 ## Structure and conventions
 
 - Hexagonal layout: `internal/modules/*` are business modules (types + ports +
