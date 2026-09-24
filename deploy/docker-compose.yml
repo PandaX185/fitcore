@@ -19,7 +19,7 @@ services:
 
   server:
     build:
-      context: .
+      context: ..
       dockerfile: deploy/Dockerfile.server
     environment:
       FITCORE_ENV: ${FITCORE_ENV:-development}
@@ -74,7 +74,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.0
     volumes:
-      - ./deploy/prometheus:/etc/prometheus
+      - ./prometheus:/etc/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.enable-lifecycle
@@ -92,8 +92,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./deploy/grafana/provisioning:/etc/grafana/provisioning
-      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
@@ -105,7 +105,7 @@ services:
     environment:
       ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
     volumes:
-      - ./deploy/alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
+      - ./alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
     entrypoint: ["/etc/alertmanager/entrypoint.sh"]
     command: []
     ports:
