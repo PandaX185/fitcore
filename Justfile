@@ -93,12 +93,24 @@ compose-up:
 compose-down:
     docker compose -f deploy/docker-compose.yml --env-file .env down
 
+# Seed the staff accounts used by the smoke flows (and reports)
+seed-smoke email='admin@fitcore.local' password='Password1!':
+    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,classes:read,staff:read,trainers:read'
+    @go run ./cmd/set-password -email viewer@fitcore.local -password {{ password }} -perms 'branches:read'
+
 # Run manual smoke flows against the live stack (scripts/smoke/): requires
 # compose-up + migrations applied; seeds the auth-flow staff account on demand.
 smoke email='admin@fitcore.local' password='Password1!':
-    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,classes:read,staff:read,trainers:read'
-    @go run ./cmd/set-password -email viewer@fitcore.local -password {{ password }} -perms 'branches:read'
+    just seed-smoke {{ email }} {{ password }}
     @scripts/smoke/health_flow.sh
     @SMOKE_EMAIL={{ email }} SMOKE_PASSWORD={{ password }} scripts/smoke/auth_flow.sh
     @scripts/smoke/branches_flow.sh
     @scripts/smoke/members_flow.sh
+
+# Produce a full test report (scripts/report-tests.sh): unit+integration tests
+# with coverage, race detection, pass/fail counts + reasons, then the smoke
+# flows. Exit nonzero on any failure. Requires compose-up + migrations applied
+# and the API running (just run). Options: --export [DIR] writes the report to
+# DIR/test-report-<timestamp>.txt (DIR defaults to artifacts).
+report *args:
+    @scripts/report-tests.sh {{ args }}
