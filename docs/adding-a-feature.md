@@ -141,6 +141,4 @@ against the real API.)
 
 The feature is complete when: spec is the contract, generated code matches it,
 domain rules are under unit test, the schema is migrated, the adapter maps
-errors cleanly, and `just check` stays green. Leftover stubs in unchanged
-modules keep returning 501 — that is the intended state until their features
-land.
+errors cleanly, and `just check` stays green.
