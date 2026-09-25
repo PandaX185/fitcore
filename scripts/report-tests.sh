@@ -14,7 +14,9 @@
 #      TEST_DATABASE_URL / TEST_REDIS_URL to point at live services)
 #   2. seeds the smoke staff accounts (just seed-smoke)
 #   3. the health/auth/branches/members/packages/memberships/classes/bookings/
-#      attendance/billing/staff/trainers smoke flows against $SMOKE_BASE
+#      attendance/billing/staff/trainers smoke flows against $SMOKE_BASE,
+#      plus a grouped "TEST SCENARIOS" summary naming every scenario checked
+#      per flow with its pass/fail outcome
 #
 # Environment:
 #   SMOKE_BASE (default http://localhost:8080) — base URL of the running API
@@ -72,6 +74,7 @@ trap 'rm -rf "$TMP"' EXIT
 REPORT="$TMP/report.txt"
 RESULTS="$TMP/results.json"
 COVER="$TMP/cover.out"
+SCENARIOS="$TMP/scenarios.txt"
 RC=0
 SECONDS=0
 
@@ -164,7 +167,7 @@ fi
 run_flow() {
     local name="$1"
     shift
-    { (cd "$ROOT_DIR" && "$@"); } 2>&1 | tee -a "$REPORT"
+    { (cd "$ROOT_DIR" && SMOKE_FLOW="$name" SMOKE_SCENARIOS="$SCENARIOS" "$@"); } 2>&1 | tee -a "$REPORT"
     local st=${PIPESTATUS[0]}
     [[ $st -ne 0 ]] && RC=1
     return "$st"
@@ -175,6 +178,7 @@ SECONDS=0
     echo
     echo "---- SMOKE FLOWS ----"
 } >>"$REPORT"
+: >"$SCENARIOS"
 run_flow health_flow "$ROOT_DIR/scripts/smoke/health_flow.sh"
 run_flow auth_flow "$ROOT_DIR/scripts/smoke/auth_flow.sh"
 run_flow branches_flow "$ROOT_DIR/scripts/smoke/branches_flow.sh"
@@ -188,6 +192,24 @@ run_flow billing_flow "$ROOT_DIR/scripts/smoke/billing_flow.sh"
 run_flow staff_flow "$ROOT_DIR/scripts/smoke/staff_flow.sh"
 run_flow trainers_flow "$ROOT_DIR/scripts/smoke/trainers_flow.sh"
 SMOKE_SECS=$SECONDS
+
+# --- 4. Grouped scenario summary --------------------------------------------
+# The flows record one "flow|label|pass|fail" line per tested scenario into
+# $SCENARIOS; present them grouped per flow.
+if [[ -s "$SCENARIOS" ]]; then
+    {
+        echo
+        echo "---- TEST SCENARIOS ----"
+        awk -F'|' '
+            $1 != flow { flow = $1; printf "\n%s\n", flow }
+            {
+                status = ($3 == "pass") ? "pass" : "fail"
+                printf "  - %s (%s)\n", $2, status
+            }
+        ' "$SCENARIOS"
+        echo
+    } >>"$REPORT"
+fi
 
 # --- footer ------------------------------------------------------------------
 [[ $races -gt 0 ]] && RC=1

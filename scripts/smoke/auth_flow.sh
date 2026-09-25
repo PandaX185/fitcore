@@ -32,25 +32,32 @@ ACCESS_1="$ACCESS_TOKEN"
 REFRESH_1="$REFRESH_TOKEN"
 _pass=$(( _pass + 1 ))
 printf 'PASS  POST /auth/login → 200 (login issued tokens)\n'
+scenario "login with correct credentials" pass
 
 # 2. Refresh consumes the refresh token and rotates the pair.
-req POST /auth/refresh 200 "{\"refreshToken\":\"$REFRESH_1\"}"
+req POST /auth/refresh 200 -n 'refresh rotates the token pair' \
+    "{\"refreshToken\":\"$REFRESH_1\"}"
 ACCESS_2=$(printf '%s' "$SMOKE_BODY" | json_get accessToken)
 REFRESH_2=$(printf '%s' "$SMOKE_BODY" | json_get refreshToken)
 
 # 3. Single-use refresh token cannot be replayed after rotation.
-req POST /auth/refresh 401 "{\"refreshToken\":\"$REFRESH_1\"}"
+req POST /auth/refresh 401 -n 'single-use refresh token cannot be replayed' \
+    "{\"refreshToken\":\"$REFRESH_1\"}"
 
 # 4. Access token issued before rotation has its jti revoked.
-req POST /auth/logout 401 "" -H "Authorization: Bearer $ACCESS_1"
+req POST /auth/logout 401 -n 'rotated-out access token is rejected' \
+    "" -H "Authorization: Bearer $ACCESS_1"
 
 # 5. Logout of the current session succeeds and revokes everything.
-req POST /auth/logout 204 "" -H "Authorization: Bearer $ACCESS_2"
+req POST /auth/logout 204 -n 'logout revokes the active session' \
+    "" -H "Authorization: Bearer $ACCESS_2"
 
 # 6. Refresh token revoked by the logout.
-req POST /auth/refresh 401 "{\"refreshToken\":\"$REFRESH_2\"}"
+req POST /auth/refresh 401 -n 'refresh token revoked by logout is rejected' \
+    "{\"refreshToken\":\"$REFRESH_2\"}"
 
 # 7. Access token revoked by the logout.
-req POST /auth/logout 401 "" -H "Authorization: Bearer $ACCESS_2"
+req POST /auth/logout 401 -n 'access token revoked by logout is rejected' \
+    "" -H "Authorization: Bearer $ACCESS_2"
 
 summary

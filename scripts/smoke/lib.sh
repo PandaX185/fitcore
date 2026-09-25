@@ -2,7 +2,8 @@
 # lib.sh — shared helpers for scripts/smoke/*_flow.sh
 #
 # Usage (inside a flow script, after this file is sourced):
-#   req <METHOD> <path> <want_code> [json_body] [-H 'Authorization: Bearer …']
+#   req <METHOD> <path> <want_code> [json_body] [-n 'scenario label'] [-H HDR]…
+#   scenario <label> <pass|fail> — record a named scenario (see below)
 #   summary   — print PASS/FAIL tallies; exit 1 if any call failed
 #
 # Every helper prints one stable line per call so the flow output is a
@@ -10,11 +11,22 @@
 #   PASS  GET /branches → 200 (want 200)
 #   FAIL  GET /branches → 401 (want 200) error=unauthorized
 #
+# In addition, each req() call records its -n label (default: "METHOD path")
+# to the file named by $SMOKE_SCENARIOS (set by scripts/report-tests.sh) as
+#   <flow>|<label>|<pass|fail>
+# so the report can group every tested scenario by flow. When $SMOKE_SCENARIOS
+# is unset nothing extra is recorded.
+#
 # Environment:
 #   SMOKE_BASE (default http://localhost:8080) — base URL of the running API
 set -uo pipefail
 
 SMOKE_BASE="${SMOKE_BASE:-http://localhost:8080}"
+
+# Flow identity used for grouping scenario records. scripts/report-tests.sh
+# sets SMOKE_FLOW per invocation; when a flow runs directly it falls back to
+# the flow script's name.
+SMOKE_FLOW="${SMOKE_FLOW:-$(basename "${BASH_SOURCE[1]:-flow}" .sh)}"
 
 _pass=0
 _fail=0
@@ -37,17 +49,27 @@ preflight() {
     fi
 }
 
-# usage: req METHOD PATH WANT [BODY] [-H HDR]...
+# scenario <label> <pass|fail> — append a named scenario to $SMOKE_SCENARIOS
+# (set by scripts/report-tests.sh); a no-op when it is unset.
+scenario() {
+    [[ -n "${SMOKE_SCENARIOS:-}" ]] || return 0
+    printf '%s|%s|%s\n' "$SMOKE_FLOW" "$1" "$2" >>"$SMOKE_SCENARIOS"
+}
+
+# usage: req METHOD PATH WANT [BODY] [-n LABEL] [-H HDR]...
 req() {
     local method="$1" path="$2" want="$3" body=""
     shift 3
     local -a extra=()
+    local label=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            -n) label="$2"; shift 2 ;;
             -H) extra+=(-H "$2"); shift 2 ;;
             *)  body="$1"; shift ;;
         esac
     done
+    label="${label:-$method $path}"
 
     local args=(-sS -o /tmp/smoke_body.$$ -w '%{http_code}' -X "$method")
     [[ -n "$body" ]] && args+=(-H 'Content-Type: application/json' -d "$body")
@@ -60,6 +82,7 @@ req() {
         _failed=1
         printf 'FAIL  %s %s → curl-error (want %s): %s\n' \
             "$method" "$path" "$want" "$(cat /tmp/smoke_err.$$)"
+        scenario "$label" fail
         rm -f /tmp/smoke_body.$$ /tmp/smoke_err.$$
         return 1
     fi
@@ -83,6 +106,7 @@ except Exception:
     if [[ "$code" == "$want" ]]; then
         _pass=$(( _pass + 1 ))
         printf 'PASS  %s %s → %s (want %s)\n' "$method" "$path" "$code" "$want"
+        scenario "$label" pass
         rm -f /tmp/smoke_body.$$ /tmp/smoke_err.$$
         return 0
     fi
@@ -92,6 +116,7 @@ except Exception:
     printf 'FAIL  %s %s → %s (want %s)%s\n' \
         "$method" "$path" "$code" "$want" \
         "${err_code:+ error=$err_code}"
+    scenario "$label" fail
     rm -f /tmp/smoke_body.$$ /tmp/smoke_err.$$
     return 1
 }

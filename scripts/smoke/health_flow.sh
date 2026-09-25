@@ -8,7 +8,7 @@ source "$SELF_DIR/lib.sh"
 
 preflight
 
-req GET /healthz 200
-req GET /readyz 200
+req GET /healthz 200 -n 'liveness healthz is publicly reachable'
+req GET /readyz 200 -n 'readiness readyz is publicly reachable'
 
 summary
