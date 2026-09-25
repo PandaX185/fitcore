@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgres:16
         env:
           POSTGRES_USER: fitcore
           POSTGRES_PASSWORD: fitcore

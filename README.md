@@ -3,7 +3,7 @@
 FitCore is a gym management platform: multi-branch locations, members and
 memberships, package catalog, class scheduling with bookings and attendance,
 and invoicing. It is built as a hexagonal Go service with a PostgreSQL
-(PostGIS) database, GORM-persisted repositories, JWT bearer auth with token
+database, GORM-persisted repositories, JWT bearer auth with token
 revocation, and a Prometheus/Grafana observability stack.
 
 ## Features
@@ -29,7 +29,7 @@ revocation, and a Prometheus/Grafana observability stack.
 - **API**: OpenAPI 3.0.3 contract in `api/openapi.yaml`, server code generated
   with [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen).
 - **HTTP**: Gin router.
-- **Persistence**: PostgreSQL/PostGIS via GORM behind repository ports.
+- **Persistence**: PostgreSQL via GORM behind repository ports.
 - **Auth**: JWT bearer tokens; refresh rotation; revocation via Redis.
 - **Observability**: Prometheus metrics, Grafana dashboards, Alertmanager
   alerts.

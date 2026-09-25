@@ -1,7 +1,7 @@
 -- 000002_branches_search.up.sql
 -- Accelerate case-insensitive branch name search with trigram (GIN) indexing.
--- A PostGIS/GiST index for proximity search is intentionally deferred until a
--- "find gyms near me" requirement exists; lat/lon are currently data, not
+-- Proximity search ("find gyms near me") has no index yet and is intentionally
+-- deferred until that requirement exists; lat/lon are currently data, not
 -- search keys.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

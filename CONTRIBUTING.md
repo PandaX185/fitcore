@@ -100,7 +100,7 @@ assertion so it shows up in `just report`'s grouped scenario list. See
 
 - **Full pipeline** — installs `just` and `golangci-lint`, then runs
   `just check` (identical to the local gate).
-- **Integration** — brings up a fresh postgres (PostGIS) service, migrates it,
+- **Integration** — brings up a fresh postgres service, migrates it,
   and runs `just test-integration`.
 - **Images** — builds the server and migrate Dockerfiles.
 
