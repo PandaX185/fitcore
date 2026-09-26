@@ -54,9 +54,13 @@ func (r *PackageRepository) GetByID(ctx context.Context, id uuid.UUID) (*package
 	return row.toPackage(), nil
 }
 
-func (r *PackageRepository) List(ctx context.Context) ([]*packages.Package, error) {
+func (r *PackageRepository) List(ctx context.Context, q *packages.ListQuery) ([]*packages.Package, error) {
+	db := r.db.Gorm().WithContext(ctx)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
+	}
 	var rows []membershipPackageRow
-	err := r.db.Gorm().WithContext(ctx).Order("name, id").Find(&rows).Error
+	err := db.Order("name, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

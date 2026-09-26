@@ -20,7 +20,7 @@ type attendanceService interface {
 	Get(ctx context.Context, id uuid.UUID) (*attendance.Attendance, error)
 	CheckIn(ctx context.Context, memberID, branchID uuid.UUID) (*attendance.Attendance, error)
 	CheckOut(ctx context.Context, memberID uuid.UUID) (*attendance.Attendance, error)
-	ListByMember(ctx context.Context, memberID uuid.UUID) ([]*attendance.Attendance, error)
+	ListByMember(ctx context.Context, memberID uuid.UUID, p attendance.MemberListParams) (*attendance.MemberListResult, error)
 }
 
 type attendanceHandler struct {
@@ -66,17 +66,28 @@ func (h *attendanceHandler) GetAttendance(c *gin.Context, attendanceId oapi.Atte
 	httpx.JSON(c, http.StatusOK, toAttendanceResponse(a))
 }
 
-func (h *attendanceHandler) ListMemberAttendance(c *gin.Context, memberId oapi.MemberID) {
-	as, err := h.svc.ListByMember(c.Request.Context(), uuid.UUID(memberId))
+func (h *attendanceHandler) ListMemberAttendance(c *gin.Context, memberId oapi.MemberID, params oapi.ListMemberAttendanceParams) {
+	p := attendance.MemberListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.ListByMember(c.Request.Context(), uuid.UUID(memberId), p)
 	if err != nil {
 		h.fail(c, "listMemberAttendance", err)
 		return
 	}
-	items := make([]oapi.Attendance, 0, len(as))
-	for _, a := range as {
+	items := make([]oapi.Attendance, 0, len(res.Items))
+	for _, a := range res.Items {
 		items = append(items, toAttendanceResponse(a))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.AttendancePage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 // fail maps attendance sentinel errors to HTTP statuses.

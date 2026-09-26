@@ -49,11 +49,17 @@ func (r *AttendanceRepository) GetByID(ctx context.Context, id uuid.UUID) (*atte
 	return row.toAttendance(), nil
 }
 
-func (r *AttendanceRepository) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*attendance.Attendance, error) {
+// ListByMember returns one member's attendance records ordered by
+// (checked_in_at DESC, id), applying the exclusive cursor key and capping
+// the result at the requested limit.
+func (r *AttendanceRepository) ListByMember(ctx context.Context, q *attendance.MemberListQuery) ([]*attendance.Attendance, error) {
+	db := r.db.Gorm().WithContext(ctx).Where("member_id = ?", q.MemberID)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(checked_in_at < ?::timestamptz OR (checked_in_at = ?::timestamptz AND id > ?))",
+			q.AfterCheckedInAt, q.AfterCheckedInAt, q.AfterID)
+	}
 	var rows []attendanceRow
-	err := r.db.Gorm().WithContext(ctx).
-		Where("member_id = ?", memberID).
-		Order("checked_in_at DESC, id").Find(&rows).Error
+	err := db.Order("checked_in_at DESC, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

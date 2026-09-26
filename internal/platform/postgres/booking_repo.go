@@ -62,11 +62,16 @@ func (r *BookingRepository) Cancel(ctx context.Context, b *bookings.Booking) err
 		}).Error
 }
 
-func (r *BookingRepository) ListByClass(ctx context.Context, classID uuid.UUID) ([]*bookings.Booking, error) {
+// ListByClass returns one class's bookings ordered by (created_at, id),
+// applying the exclusive cursor key and capping the result at the requested
+// limit.
+func (r *BookingRepository) ListByClass(ctx context.Context, q *bookings.ClassListQuery) ([]*bookings.Booking, error) {
+	db := r.db.Gorm().WithContext(ctx).Where("class_id = ?", q.ClassID)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(created_at, id) > (?::timestamptz, ?)", q.AfterBookedAt, q.AfterID)
+	}
 	var rows []classBookingRow
-	err := r.db.Gorm().WithContext(ctx).
-		Where("class_id = ?", classID).
-		Order("created_at, id").Find(&rows).Error
+	err := db.Order("created_at, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

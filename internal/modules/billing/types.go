@@ -44,3 +44,31 @@ type Patch struct {
 	Status *InvoiceStatus
 	DueAt  *time.Time
 }
+
+// MemberListQuery is the paginated, member-scoped query handed to
+// persistence.
+type MemberListQuery struct {
+	// MemberID scopes the result to one member.
+	MemberID uuid.UUID
+	// Limit is the maximum number of rows to return.
+	Limit int
+	// AfterIssuedAt and AfterID form the exclusive cursor key into the
+	// (issued_on DESC, id) ordering; AfterID is zero on the first page.
+	// AfterIssuedAt carries an RFC3339 timestamp as text; the domain
+	// exposes issued_on as Invoice.CreatedAt.
+	AfterIssuedAt string
+	AfterID       uuid.UUID
+}
+
+// MemberListParams is the service-facing page request.
+type MemberListParams struct {
+	Limit  int
+	Cursor string
+}
+
+// MemberListResult is a page of invoices plus the cursor for the next page,
+// if any.
+type MemberListResult struct {
+	Items      []*Invoice
+	NextCursor string
+}

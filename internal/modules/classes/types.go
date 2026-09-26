@@ -37,3 +37,31 @@ type Patch struct {
 	EndsAt    *time.Time
 	Capacity  *int
 }
+
+// ListQuery is the paginated, filterable query handed to persistence.
+type ListQuery struct {
+	// BranchID and TrainerID narrow the result; nil means unfiltered.
+	BranchID  *uuid.UUID
+	TrainerID *uuid.UUID
+	// Limit is the maximum number of rows to return.
+	Limit int
+	// AfterStartsAt and AfterID form the exclusive cursor key into the
+	// (starts_at, id) ordering; AfterID is zero on the first page.
+	// AfterStartsAt carries an RFC3339 timestamp as text.
+	AfterStartsAt string
+	AfterID       uuid.UUID
+}
+
+// ListParams is the service-facing page request.
+type ListParams struct {
+	BranchID  *uuid.UUID
+	TrainerID *uuid.UUID
+	Limit     int
+	Cursor    string
+}
+
+// ListResult is a page of classes plus the cursor for the next page, if any.
+type ListResult struct {
+	Items      []*Class
+	NextCursor string
+}

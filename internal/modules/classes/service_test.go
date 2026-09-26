@@ -10,6 +10,7 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/branches"
 	"github.com/PandaX185/fitcore/internal/modules/trainers"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 type fakeRepo struct {
@@ -17,7 +18,7 @@ type fakeRepo struct {
 	getByID func(ctx context.Context, id uuid.UUID) (*Class, error)
 	update  func(ctx context.Context, id uuid.UUID, patch *Patch) error
 	delete  func(ctx context.Context, id uuid.UUID) error
-	list    func(ctx context.Context, branchID *uuid.UUID, trainerID *uuid.UUID) ([]*Class, error)
+	list    func(ctx context.Context, q *ListQuery) ([]*Class, error)
 }
 
 func (f fakeRepo) Create(ctx context.Context, c *Class) error {
@@ -41,11 +42,11 @@ func (f fakeRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return f.delete(ctx, id)
 }
-func (f fakeRepo) List(ctx context.Context, branchID *uuid.UUID, trainerID *uuid.UUID) ([]*Class, error) {
+func (f fakeRepo) List(ctx context.Context, q *ListQuery) ([]*Class, error) {
 	if f.list == nil {
 		return nil, nil
 	}
-	return f.list(ctx, branchID, trainerID)
+	return f.list(ctx, q)
 }
 
 type fakeBranches struct {
@@ -215,27 +216,148 @@ func TestDelete(t *testing.T) {
 func TestList(t *testing.T) {
 	branchID := uuid.New()
 	trainerID := uuid.New()
-	svc := NewService(fakeRepo{list: func(_ context.Context, b, tr *uuid.UUID) ([]*Class, error) {
-		if b == nil || *b != branchID || tr == nil || *tr != trainerID {
-			t.Fatalf("List(%v, %v)", b, tr)
+	svc := NewService(fakeRepo{list: func(_ context.Context, q *ListQuery) ([]*Class, error) {
+		if q.BranchID == nil || *q.BranchID != branchID || q.TrainerID == nil || *q.TrainerID != trainerID {
+			t.Fatalf("List(%+v)", q)
 		}
 		return []*Class{{ID: uuid.New()}}, nil
 	}}, existingBranch(), fakeTrainers{})
-	got, err := svc.List(context.Background(), &branchID, &trainerID)
-	if err != nil || len(got) != 1 {
-		t.Fatalf("List = %v, %v", got, err)
+	res, err := svc.List(context.Background(), ListParams{BranchID: &branchID, TrainerID: &trainerID})
+	if err != nil || len(res.Items) != 1 {
+		t.Fatalf("List = %v, %v", res, err)
 	}
 }
 
 func TestListNilBranchAllowed(t *testing.T) {
 	branchID := uuid.New()
-	svc := NewService(fakeRepo{list: func(_ context.Context, b, tr *uuid.UUID) ([]*Class, error) {
-		if b != nil || tr != nil {
-			t.Fatalf("List(%v, %v), want all", b, tr)
+	svc := NewService(fakeRepo{list: func(_ context.Context, q *ListQuery) ([]*Class, error) {
+		if q.BranchID != nil || q.TrainerID != nil {
+			t.Fatalf("List(%+v), want all", q)
 		}
 		return []*Class{{ID: branchID}}, nil
 	}}, existingBranch(), fakeTrainers{})
-	if _, err := svc.List(context.Background(), nil, nil); err != nil {
+	if _, err := svc.List(context.Background(), ListParams{}); err != nil {
 		t.Fatalf("List nil filters: %v", err)
+	}
+}
+
+func TestListFirstPage(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	svc := NewService(fakeRepo{
+		list: func(_ context.Context, q *ListQuery) ([]*Class, error) {
+			if q.Limit != paging.DefaultLimit+1 {
+				t.Fatalf("Limit = %d, want %d", q.Limit, paging.DefaultLimit+1)
+			}
+			if q.AfterStartsAt != "" || q.AfterID != uuid.Nil {
+				t.Fatalf("cursor start = %q/%v, want empty", q.AfterStartsAt, q.AfterID)
+			}
+			items := []*Class{}
+			for i := 0; i < paging.DefaultLimit+1; i++ {
+				items = append(items, &Class{ID: uuid.New(), StartsAt: now})
+			}
+			return items, nil
+		},
+	}, existingBranch(), fakeTrainers{})
+
+	res, err := svc.List(context.Background(), ListParams{})
+	if err != nil {
+		t.Fatalf("List: unexpected error %v", err)
+	}
+	if len(res.Items) != paging.DefaultLimit {
+		t.Fatalf("items = %d, want %d", len(res.Items), paging.DefaultLimit)
+	}
+	if res.NextCursor == "" {
+		t.Fatal("NextCursor empty, want a value when a page is full")
+	}
+	// The emitted cursor must round-trip to the same key the repo consumes.
+	cur, err := paging.DecodeCursor(res.NextCursor)
+	if err != nil {
+		t.Fatalf("decode NextCursor: %v", err)
+	}
+	if cur.Key != now.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("cursor key = %q, want %q", cur.Key, now.UTC().Format(time.RFC3339Nano))
+	}
+}
+
+func TestListLastPage(t *testing.T) {
+	svc := NewService(fakeRepo{
+		list: func(context.Context, *ListQuery) ([]*Class, error) {
+			return []*Class{{ID: uuid.New()}}, nil
+		},
+	}, existingBranch(), fakeTrainers{})
+
+	res, err := svc.List(context.Background(), ListParams{Limit: 20})
+	if err != nil {
+		t.Fatalf("List: unexpected error %v", err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(res.Items))
+	}
+	if res.NextCursor != "" {
+		t.Fatalf("NextCursor = %q, want empty on the last page", res.NextCursor)
+	}
+}
+
+func TestListClampsLimit(t *testing.T) {
+	for _, tt := range []struct {
+		in   int
+		want int
+	}{
+		{in: 0, want: paging.DefaultLimit},
+		{in: -5, want: paging.DefaultLimit},
+		{in: 1000, want: paging.MaxLimit},
+	} {
+		t.Run("", func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				list: func(_ context.Context, q *ListQuery) ([]*Class, error) {
+					if q.Limit != tt.want+1 {
+						t.Fatalf("repo Limit = %d, want %d", q.Limit, tt.want+1)
+					}
+					return nil, nil
+				},
+			}, existingBranch(), fakeTrainers{})
+			if _, err := svc.List(context.Background(), ListParams{Limit: tt.in}); err != nil {
+				t.Fatalf("List: unexpected error %v", err)
+			}
+		})
+	}
+}
+
+func TestListCursorRoundTrip(t *testing.T) {
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	id := uuid.New()
+	cursor := paging.Cursor{Key: at.Format(time.RFC3339Nano), ID: id}.Encode()
+
+	svc := NewService(fakeRepo{
+		list: func(_ context.Context, q *ListQuery) ([]*Class, error) {
+			if q.AfterStartsAt != at.Format(time.RFC3339Nano) {
+				t.Fatalf("AfterStartsAt = %q, want %q", q.AfterStartsAt, at.Format(time.RFC3339Nano))
+			}
+			if q.AfterID != id {
+				t.Fatalf("AfterID = %v, want %v", q.AfterID, id)
+			}
+			return nil, nil
+		},
+	}, existingBranch(), fakeTrainers{})
+
+	if _, err := svc.List(context.Background(), ListParams{Cursor: cursor}); err != nil {
+		t.Fatalf("List: unexpected error %v", err)
+	}
+}
+
+func TestListRejectsBadCursor(t *testing.T) {
+	for _, cur := range []string{"%%%", "not-base64-!", "eyJuYW1lIjoibiJ9"} {
+		t.Run(cur, func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				list: func(context.Context, *ListQuery) ([]*Class, error) {
+					t.Fatal("repo must not be called for a bad cursor")
+					return nil, nil
+				},
+			}, existingBranch(), fakeTrainers{})
+			_, err := svc.List(context.Background(), ListParams{Cursor: cur})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("List error = %v, want ErrInvalidInput", err)
+			}
+		})
 	}
 }

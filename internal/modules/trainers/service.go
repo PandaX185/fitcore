@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/PandaX185/fitcore/internal/modules/branches"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 // Service implements the trainer lifecycle business rules on the ports.
@@ -82,12 +83,33 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Train
 	return s.repo.GetByID(ctx, id)
 }
 
-// ListByBranch returns the trainers assigned to a branch, ordered by name.
-func (s *Service) ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*Trainer, error) {
+// ListByBranch returns one page of the trainers assigned to a branch
+// ordered by (name, id), with an opaque cursor for the next page when more
+// rows remain.
+func (s *Service) ListByBranch(ctx context.Context, branchID uuid.UUID, p BranchListParams) (*BranchListResult, error) {
 	if branchID == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
-	return s.repo.ListByBranch(ctx, branchID)
+	limit := paging.Limit(p.Limit)
+	cursor, err := paging.DecodeCursor(p.Cursor)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	items, err := s.repo.ListByBranch(ctx, &BranchListQuery{
+		BranchID:  branchID,
+		Limit:     limit + 1,
+		AfterName: cursor.Key,
+		AfterID:   cursor.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := &BranchListResult{Items: items}
+	if len(items) > limit {
+		res.Items = items[:limit]
+		res.NextCursor = paging.Cursor{Key: items[limit-1].Name, ID: items[limit-1].ID}.Encode()
+	}
+	return res, nil
 }
 
 func normalizeEmail(email string) string {

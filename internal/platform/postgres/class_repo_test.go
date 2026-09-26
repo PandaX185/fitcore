@@ -103,7 +103,7 @@ func TestClassRepositoryListFilters(t *testing.T) {
 	}
 	cleanupTable(t, db, "classes", idT)
 
-	byBranch, err := repo.List(ctx, &branchA, nil)
+	byBranch, err := repo.List(ctx, &classes.ListQuery{BranchID: &branchA, Limit: 100})
 	if err != nil {
 		t.Fatalf("List(branchA): %v", err)
 	}
@@ -116,7 +116,7 @@ func TestClassRepositoryListFilters(t *testing.T) {
 		}
 	}
 
-	byTrainer, err := repo.List(ctx, nil, &trainerID)
+	byTrainer, err := repo.List(ctx, &classes.ListQuery{TrainerID: &trainerID, Limit: 100})
 	if err != nil {
 		t.Fatalf("List(trainer): %v", err)
 	}
@@ -124,9 +124,70 @@ func TestClassRepositoryListFilters(t *testing.T) {
 		t.Fatalf("List(trainer) = %+v", byTrainer)
 	}
 
-	all, err := repo.List(ctx, nil, nil)
+	all, err := repo.List(ctx, &classes.ListQuery{Limit: 100})
 	if err != nil || len(all) < 3 {
 		t.Fatalf("List(all) = %d, %v; want >= 3", len(all), err)
+	}
+}
+
+func TestClassRepositoryListPaginates(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewClassRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	base := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+
+	starts := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour), base.Add(3 * time.Hour)}
+	ids := make([]uuid.UUID, 0, len(starts))
+	for i, st := range starts {
+		id := uuid.New()
+		ids = append(ids, id)
+		if err := repo.Create(ctx, &classes.Class{
+			ID: id, BranchID: branchID, Name: "Page Class", Capacity: 5,
+			StartsAt: st, EndsAt: st.Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("Create %d: %v", i, err)
+		}
+		cleanupTable(t, db, "classes", id)
+	}
+
+	var collected []uuid.UUID
+	var afterKey string
+	var afterID uuid.UUID
+	for {
+		res, err := repo.List(ctx, &classes.ListQuery{Limit: 2, AfterStartsAt: afterKey, AfterID: afterID})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(res) == 0 {
+			break
+		}
+		for _, c := range res {
+			collected = append(collected, c.ID)
+		}
+		if len(res) < 2 {
+			break
+		}
+		afterKey = res[len(res)-1].StartsAt.UTC().Format(time.RFC3339Nano)
+		afterID = res[len(res)-1].ID
+	}
+
+	// The four inserted rows must appear in ascending starts_at order.
+	pos := map[uuid.UUID]int{}
+	for i, id := range collected {
+		pos[id] = i
+	}
+	prev := -1
+	for _, id := range ids {
+		p, ok := pos[id]
+		if !ok {
+			t.Fatalf("missing class %v after paging: %v", id, collected)
+		}
+		if p <= prev {
+			t.Fatalf("classes out of order after paging: %v", collected)
+		}
+		prev = p
 	}
 }
 

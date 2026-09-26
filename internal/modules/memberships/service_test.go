@@ -10,12 +10,13 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/packages"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 type fakeRepo struct {
 	create                   func(ctx context.Context, m *Membership) error
 	getByID                  func(ctx context.Context, id uuid.UUID) (*Membership, error)
-	listByMember             func(ctx context.Context, memberID uuid.UUID) ([]*Membership, error)
+	listByMember             func(ctx context.Context, q *MemberListQuery) ([]*Membership, error)
 	update                   func(ctx context.Context, id uuid.UUID, patch *Patch) error
 	hasActiveByMember        func(ctx context.Context, memberID uuid.UUID) (bool, error)
 	findActiveByMemberBranch func(ctx context.Context, memberID, branchID uuid.UUID) (*Membership, error)
@@ -30,11 +31,11 @@ func (f fakeRepo) Create(ctx context.Context, m *Membership) error {
 func (f fakeRepo) GetByID(ctx context.Context, id uuid.UUID) (*Membership, error) {
 	return f.getByID(ctx, id)
 }
-func (f fakeRepo) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Membership, error) {
+func (f fakeRepo) ListByMember(ctx context.Context, q *MemberListQuery) ([]*Membership, error) {
 	if f.listByMember == nil {
 		return nil, nil
 	}
-	return f.listByMember(ctx, memberID)
+	return f.listByMember(ctx, q)
 }
 func (f fakeRepo) Update(ctx context.Context, id uuid.UUID, patch *Patch) error {
 	if f.update == nil {
@@ -205,7 +206,131 @@ func TestFindActiveByMemberAndBranch(t *testing.T) {
 
 func TestListByMemberInvalid(t *testing.T) {
 	svc := NewService(fakeRepo{}, emptyPackages(30), emptyMembers())
-	if _, err := svc.ListByMember(context.Background(), uuid.Nil); !errors.Is(err, ErrInvalidInput) {
+	if _, err := svc.ListByMember(context.Background(), uuid.Nil, MemberListParams{}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("ListByMember nil = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestListByMemberFirstPage(t *testing.T) {
+	memberID := uuid.New()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	svc := NewService(fakeRepo{
+		listByMember: func(_ context.Context, q *MemberListQuery) ([]*Membership, error) {
+			if q.MemberID != memberID {
+				t.Fatalf("MemberID = %v, want %v", q.MemberID, memberID)
+			}
+			if q.Limit != paging.DefaultLimit+1 {
+				t.Fatalf("Limit = %d, want %d", q.Limit, paging.DefaultLimit+1)
+			}
+			if q.AfterStartsAt != "" || q.AfterID != uuid.Nil {
+				t.Fatalf("cursor start = %q/%v, want empty", q.AfterStartsAt, q.AfterID)
+			}
+			items := []*Membership{}
+			for i := 0; i < paging.DefaultLimit+1; i++ {
+				items = append(items, &Membership{ID: uuid.New(), StartsAt: now})
+			}
+			return items, nil
+		},
+	}, emptyPackages(30), emptyMembers())
+
+	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
+	if err != nil {
+		t.Fatalf("ListByMember: unexpected error %v", err)
+	}
+	if len(res.Items) != paging.DefaultLimit {
+		t.Fatalf("items = %d, want %d", len(res.Items), paging.DefaultLimit)
+	}
+	if res.NextCursor == "" {
+		t.Fatal("NextCursor empty, want a value when a page is full")
+	}
+	cur, err := paging.DecodeCursor(res.NextCursor)
+	if err != nil {
+		t.Fatalf("decode NextCursor: %v", err)
+	}
+	if cur.Key != now.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("cursor key = %q, want %q", cur.Key, now.UTC().Format(time.RFC3339Nano))
+	}
+}
+
+func TestListByMemberLastPage(t *testing.T) {
+	svc := NewService(fakeRepo{
+		listByMember: func(context.Context, *MemberListQuery) ([]*Membership, error) {
+			return []*Membership{{ID: uuid.New()}}, nil
+		},
+	}, emptyPackages(30), emptyMembers())
+
+	res, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: 20})
+	if err != nil {
+		t.Fatalf("ListByMember: unexpected error %v", err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(res.Items))
+	}
+	if res.NextCursor != "" {
+		t.Fatalf("NextCursor = %q, want empty on the last page", res.NextCursor)
+	}
+}
+
+func TestListByMemberClampsLimit(t *testing.T) {
+	for _, tt := range []struct {
+		in   int
+		want int
+	}{
+		{in: 0, want: paging.DefaultLimit},
+		{in: -5, want: paging.DefaultLimit},
+		{in: 1000, want: paging.MaxLimit},
+	} {
+		t.Run("", func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				listByMember: func(_ context.Context, q *MemberListQuery) ([]*Membership, error) {
+					if q.Limit != tt.want+1 {
+						t.Fatalf("repo Limit = %d, want %d", q.Limit, tt.want+1)
+					}
+					return nil, nil
+				},
+			}, emptyPackages(30), emptyMembers())
+			if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: tt.in}); err != nil {
+				t.Fatalf("ListByMember: unexpected error %v", err)
+			}
+		})
+	}
+}
+
+func TestListByMemberCursorRoundTrip(t *testing.T) {
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	id := uuid.New()
+	cursor := paging.Cursor{Key: at.Format(time.RFC3339Nano), ID: id}.Encode()
+
+	svc := NewService(fakeRepo{
+		listByMember: func(_ context.Context, q *MemberListQuery) ([]*Membership, error) {
+			if q.AfterStartsAt != at.Format(time.RFC3339Nano) {
+				t.Fatalf("AfterStartsAt = %q, want %q", q.AfterStartsAt, at.Format(time.RFC3339Nano))
+			}
+			if q.AfterID != id {
+				t.Fatalf("AfterID = %v, want %v", q.AfterID, id)
+			}
+			return nil, nil
+		},
+	}, emptyPackages(30), emptyMembers())
+
+	if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cursor}); err != nil {
+		t.Fatalf("ListByMember: unexpected error %v", err)
+	}
+}
+
+func TestListByMemberRejectsBadCursor(t *testing.T) {
+	for _, cur := range []string{"%%%", "not-base64-!", "eyJuYW1lIjoibiJ9"} {
+		t.Run(cur, func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				listByMember: func(context.Context, *MemberListQuery) ([]*Membership, error) {
+					t.Fatal("repo must not be called for a bad cursor")
+					return nil, nil
+				},
+			}, emptyPackages(30), emptyMembers())
+			_, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cur})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("ListByMember error = %v, want ErrInvalidInput", err)
+			}
+		})
 	}
 }

@@ -122,7 +122,7 @@ func TestAttendanceRepositoryListByMember(t *testing.T) {
 		cleanupTable(t, db, "attendance", id)
 	}
 
-	got, err := repo.ListByMember(ctx, memberID)
+	got, err := repo.ListByMember(ctx, &attendance.MemberListQuery{MemberID: memberID, Limit: 100})
 	if err != nil {
 		t.Fatalf("ListByMember: %v", err)
 	}
@@ -131,5 +131,71 @@ func TestAttendanceRepositoryListByMember(t *testing.T) {
 	}
 	if got[0].CheckedInAt.Before(got[1].CheckedInAt) {
 		t.Fatalf("expected most-recent-first, got %v then %v", got[0].CheckedInAt, got[1].CheckedInAt)
+	}
+}
+
+func TestAttendanceRepositoryListByMemberPaginates(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewAttendanceRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+	membershipID := createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusActive)
+
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Microsecond)
+	checkins := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour), base.Add(3 * time.Hour)}
+	ids := make([]uuid.UUID, 0, len(checkins))
+	for _, at := range checkins {
+		id := uuid.New()
+		ids = append(ids, id)
+		if err := repo.Create(ctx, &attendance.Attendance{
+			ID: id, MemberID: memberID, BranchID: branchID, MembershipID: membershipID,
+			CheckedInAt: at, CreatedAt: at,
+		}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		cleanupTable(t, db, "attendance", id)
+	}
+
+	var collected []uuid.UUID
+	var afterKey string
+	var afterID uuid.UUID
+	for {
+		res, err := repo.ListByMember(ctx, &attendance.MemberListQuery{
+			MemberID: memberID, Limit: 2, AfterCheckedInAt: afterKey, AfterID: afterID,
+		})
+		if err != nil {
+			t.Fatalf("ListByMember: %v", err)
+		}
+		if len(res) == 0 {
+			break
+		}
+		for _, a := range res {
+			collected = append(collected, a.ID)
+		}
+		if len(res) < 2 {
+			break
+		}
+		afterKey = res[len(res)-1].CheckedInAt.UTC().Format(time.RFC3339Nano)
+		afterID = res[len(res)-1].ID
+	}
+
+	// The four inserted rows must appear in descending check-in order.
+	pos := map[uuid.UUID]int{}
+	for i, id := range collected {
+		pos[id] = i
+	}
+	prev := -1
+	for i := len(ids) - 1; i >= 0; i-- {
+		p, ok := pos[ids[i]]
+		if !ok {
+			t.Fatalf("missing attendance %v after paging: %v", ids[i], collected)
+		}
+		if p <= prev {
+			t.Fatalf("attendance out of order after paging: %v", collected)
+		}
+		prev = p
 	}
 }

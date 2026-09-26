@@ -114,14 +114,14 @@ func TestStaffRepositoryListByBranch(t *testing.T) {
 	}
 	cleanupTable(t, db, "staff", id)
 
-	got, err := repo.ListByBranch(ctx, branchID)
+	got, err := repo.ListByBranch(ctx, &staff.BranchListQuery{BranchID: branchID, Limit: 100})
 	if err != nil {
 		t.Fatalf("ListByBranch: %v", err)
 	}
 	if len(got) < 1 {
 		t.Fatalf("ListByBranch returned %d, want >= 1", len(got))
 	}
-	other, err := repo.ListByBranch(ctx, uuid.New())
+	other, err := repo.ListByBranch(ctx, &staff.BranchListQuery{BranchID: uuid.New(), Limit: 100})
 	if err != nil {
 		t.Fatalf("ListByBranch(other): %v", err)
 	}
@@ -129,5 +129,63 @@ func TestStaffRepositoryListByBranch(t *testing.T) {
 		if s.BranchID == branchID {
 			t.Fatalf("other branch leaked row: %+v", s)
 		}
+	}
+}
+
+func TestStaffRepositoryListByBranchPaginates(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewStaffRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+
+	tag := uuid.NewString()[:8]
+	names := []string{"Plumb " + tag, "Quill " + tag, "Ridge " + tag, "Slate " + tag}
+	for _, n := range names {
+		id := uuid.New()
+		if err := repo.Create(ctx, &staff.Staff{ID: id, BranchID: branchID, Name: n, Email: id.String()[:8] + "@example.com"}); err != nil {
+			t.Fatalf("Create(%s): %v", n, err)
+		}
+		cleanupTable(t, db, "staff", id)
+	}
+
+	var collected []string
+	var afterName string
+	var afterID uuid.UUID
+	for {
+		res, err := repo.ListByBranch(ctx, &staff.BranchListQuery{BranchID: branchID, Limit: 2, AfterName: afterName, AfterID: afterID})
+		if err != nil {
+			t.Fatalf("ListByBranch: %v", err)
+		}
+		if len(res) == 0 {
+			break
+		}
+		for _, s := range res {
+			collected = append(collected, s.Name)
+		}
+		afterName = res[len(res)-1].Name
+		afterID = res[len(res)-1].ID
+		if len(res) < 2 {
+			break
+		}
+	}
+
+	// Page boundaries must produce every inserted row, each row in name order
+	// relative to the others (the database is shared, so other rows may
+	// appear between them).
+	pos := map[string]int{}
+	for i, n := range collected {
+		pos[n] = i
+	}
+	prev := -1
+	for _, n := range names {
+		p, ok := pos[n]
+		if !ok {
+			t.Fatalf("missing row %q after paging: %v", n, collected)
+		}
+		if p <= prev {
+			t.Fatalf("rows out of order after paging: %v", collected)
+		}
+		prev = p
 	}
 }

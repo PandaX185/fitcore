@@ -4,17 +4,19 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/memberships"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 type fakeRepo struct {
 	create           func(ctx context.Context, a *Attendance) error
 	getByID          func(ctx context.Context, id uuid.UUID) (*Attendance, error)
-	listByMember     func(ctx context.Context, memberID uuid.UUID) ([]*Attendance, error)
+	listByMember     func(ctx context.Context, q *MemberListQuery) ([]*Attendance, error)
 	findOpenByMember func(ctx context.Context, memberID uuid.UUID) (*Attendance, error)
 	close            func(ctx context.Context, a *Attendance) error
 }
@@ -28,11 +30,11 @@ func (f fakeRepo) Create(ctx context.Context, a *Attendance) error {
 func (f fakeRepo) GetByID(ctx context.Context, id uuid.UUID) (*Attendance, error) {
 	return f.getByID(ctx, id)
 }
-func (f fakeRepo) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Attendance, error) {
+func (f fakeRepo) ListByMember(ctx context.Context, q *MemberListQuery) ([]*Attendance, error) {
 	if f.listByMember == nil {
 		return nil, nil
 	}
-	return f.listByMember(ctx, memberID)
+	return f.listByMember(ctx, q)
 }
 func (f fakeRepo) FindOpenByMember(ctx context.Context, memberID uuid.UUID) (*Attendance, error) {
 	if f.findOpenByMember == nil {
@@ -174,17 +176,138 @@ func TestCheckOutNoOpenRecord(t *testing.T) {
 
 func TestListByMember(t *testing.T) {
 	memberID := uuid.New()
-	svc := NewService(fakeRepo{listByMember: func(_ context.Context, got uuid.UUID) ([]*Attendance, error) {
-		if got != memberID {
-			t.Fatalf("ListByMember(%v)", got)
+	svc := NewService(fakeRepo{listByMember: func(_ context.Context, q *MemberListQuery) ([]*Attendance, error) {
+		if q.MemberID != memberID {
+			t.Fatalf("MemberListQuery(%+v)", q)
 		}
 		return []*Attendance{{ID: uuid.New()}}, nil
 	}}, fakeMembers{}, fakeMemberships{})
-	got, err := svc.ListByMember(context.Background(), memberID)
-	if err != nil || len(got) != 1 {
-		t.Fatalf("ListByMember = %v, %v", got, err)
+	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
+	if err != nil || len(res.Items) != 1 {
+		t.Fatalf("ListByMember = %v, %v", res, err)
 	}
-	if _, err := svc.ListByMember(context.Background(), uuid.Nil); !errors.Is(err, ErrInvalidInput) {
+	if _, err := svc.ListByMember(context.Background(), uuid.Nil, MemberListParams{}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("ListByMember nil = %v", err)
+	}
+}
+
+func TestListByMemberFirstPage(t *testing.T) {
+	memberID := uuid.New()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	svc := NewService(fakeRepo{
+		listByMember: func(_ context.Context, q *MemberListQuery) ([]*Attendance, error) {
+			if q.Limit != paging.DefaultLimit+1 {
+				t.Fatalf("Limit = %d, want %d", q.Limit, paging.DefaultLimit+1)
+			}
+			if q.AfterCheckedInAt != "" || q.AfterID != uuid.Nil {
+				t.Fatalf("cursor start = %q/%v, want empty", q.AfterCheckedInAt, q.AfterID)
+			}
+			items := []*Attendance{}
+			for i := 0; i < paging.DefaultLimit+1; i++ {
+				items = append(items, &Attendance{ID: uuid.New(), CheckedInAt: now})
+			}
+			return items, nil
+		},
+	}, fakeMembers{}, fakeMemberships{})
+
+	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
+	if err != nil {
+		t.Fatalf("ListByMember: unexpected error %v", err)
+	}
+	if len(res.Items) != paging.DefaultLimit {
+		t.Fatalf("items = %d, want %d", len(res.Items), paging.DefaultLimit)
+	}
+	if res.NextCursor == "" {
+		t.Fatal("NextCursor empty, want a value when a page is full")
+	}
+	cur, err := paging.DecodeCursor(res.NextCursor)
+	if err != nil {
+		t.Fatalf("decode NextCursor: %v", err)
+	}
+	if cur.Key != now.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("cursor key = %q, want %q", cur.Key, now.UTC().Format(time.RFC3339Nano))
+	}
+}
+
+func TestListByMemberLastPage(t *testing.T) {
+	svc := NewService(fakeRepo{
+		listByMember: func(context.Context, *MemberListQuery) ([]*Attendance, error) {
+			return []*Attendance{{ID: uuid.New()}}, nil
+		},
+	}, fakeMembers{}, fakeMemberships{})
+
+	res, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: 20})
+	if err != nil {
+		t.Fatalf("ListByMember: unexpected error %v", err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(res.Items))
+	}
+	if res.NextCursor != "" {
+		t.Fatalf("NextCursor = %q, want empty on the last page", res.NextCursor)
+	}
+}
+
+func TestListByMemberClampsLimit(t *testing.T) {
+	for _, tt := range []struct {
+		in   int
+		want int
+	}{
+		{in: 0, want: paging.DefaultLimit},
+		{in: -5, want: paging.DefaultLimit},
+		{in: 1000, want: paging.MaxLimit},
+	} {
+		t.Run("", func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				listByMember: func(_ context.Context, q *MemberListQuery) ([]*Attendance, error) {
+					if q.Limit != tt.want+1 {
+						t.Fatalf("repo Limit = %d, want %d", q.Limit, tt.want+1)
+					}
+					return nil, nil
+				},
+			}, fakeMembers{}, fakeMemberships{})
+			if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: tt.in}); err != nil {
+				t.Fatalf("ListByMember: unexpected error %v", err)
+			}
+		})
+	}
+}
+
+func TestListByMemberCursorRoundTrip(t *testing.T) {
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	id := uuid.New()
+	cursor := paging.Cursor{Key: at.Format(time.RFC3339Nano), ID: id}.Encode()
+
+	svc := NewService(fakeRepo{
+		listByMember: func(_ context.Context, q *MemberListQuery) ([]*Attendance, error) {
+			if q.AfterCheckedInAt != at.Format(time.RFC3339Nano) {
+				t.Fatalf("AfterCheckedInAt = %q, want %q", q.AfterCheckedInAt, at.Format(time.RFC3339Nano))
+			}
+			if q.AfterID != id {
+				t.Fatalf("AfterID = %v, want %v", q.AfterID, id)
+			}
+			return nil, nil
+		},
+	}, fakeMembers{}, fakeMemberships{})
+
+	if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cursor}); err != nil {
+		t.Fatalf("ListByMember: unexpected error %v", err)
+	}
+}
+
+func TestListByMemberRejectsBadCursor(t *testing.T) {
+	for _, cur := range []string{"%%%", "not-base64-!", "eyJuYW1lIjoibiJ9"} {
+		t.Run(cur, func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				listByMember: func(context.Context, *MemberListQuery) ([]*Attendance, error) {
+					t.Fatal("repo must not be called for a bad cursor")
+					return nil, nil
+				},
+			}, fakeMembers{}, fakeMemberships{})
+			_, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cur})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("ListByMember error = %v, want ErrInvalidInput", err)
+			}
+		})
 	}
 }

@@ -79,7 +79,7 @@ func TestBookingRepositoryLifecycle(t *testing.T) {
 	}
 	cleanupTable(t, db, "class_bookings", id2)
 
-	list, err := repo.ListByClass(ctx, classID)
+	list, err := repo.ListByClass(ctx, &bookings.ClassListQuery{ClassID: classID, Limit: 100})
 	if err != nil {
 		t.Fatalf("ListByClass: %v", err)
 	}
@@ -151,5 +151,70 @@ func TestBookingRepositoryCapacityCount(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("count = %d, want 2 (two booked rows)", count)
+	}
+}
+
+func TestBookingRepositoryListByClassPaginates(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewBookingRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	classID := createTestClass(t, db, branchID, 10)
+
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Microsecond)
+	booked := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour), base.Add(3 * time.Hour)}
+	ids := make([]uuid.UUID, 0, len(booked))
+	for _, at := range booked {
+		id := uuid.New()
+		ids = append(ids, id)
+		memberID := createTestMember(t, db, branchID)
+		if err := repo.Create(ctx, &bookings.Booking{
+			ID: id, ClassID: classID, MemberID: memberID,
+			Status: bookings.StatusBooked, BookedAt: at, CreatedAt: at,
+		}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		cleanupTable(t, db, "class_bookings", id)
+	}
+
+	var collected []uuid.UUID
+	var afterKey string
+	var afterID uuid.UUID
+	for {
+		res, err := repo.ListByClass(ctx, &bookings.ClassListQuery{
+			ClassID: classID, Limit: 2, AfterBookedAt: afterKey, AfterID: afterID,
+		})
+		if err != nil {
+			t.Fatalf("ListByClass: %v", err)
+		}
+		if len(res) == 0 {
+			break
+		}
+		for _, b := range res {
+			collected = append(collected, b.ID)
+		}
+		if len(res) < 2 {
+			break
+		}
+		afterKey = res[len(res)-1].BookedAt.UTC().Format(time.RFC3339Nano)
+		afterID = res[len(res)-1].ID
+	}
+
+	// The four inserted rows must appear in ascending created order.
+	pos := map[uuid.UUID]int{}
+	for i, id := range collected {
+		pos[id] = i
+	}
+	prev := -1
+	for _, id := range ids {
+		p, ok := pos[id]
+		if !ok {
+			t.Fatalf("missing booking %v after paging: %v", id, collected)
+		}
+		if p <= prev {
+			t.Fatalf("bookings out of order after paging: %v", collected)
+		}
+		prev = p
 	}
 }

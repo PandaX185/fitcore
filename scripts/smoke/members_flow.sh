@@ -88,6 +88,23 @@ if [[ -n "$MB_ID" ]]; then
     req DELETE "/members/$MB_ID" 404 -n 'deleting an absent member returns 404' "" -H "Authorization: Bearer $ACCESS_TOKEN"
 fi
 
+# 8b. Pagination: seed two more members, walk pages of one, and follow the
+# opaque cursor to the next page.
+for i in 1 2; do
+    req POST /members 201 -n "seed member $i for paging" "$(python3 -c 'import json,sys
+print(json.dumps({"branchId": sys.argv[1], "name": "SmokePage-" + sys.argv[2],
+                    "email": sys.argv[3]}))' "$BR_ID" "$i" "$(date +%s%N)-$i@smoke.local")" \
+        -H "Authorization: Bearer $ACCESS_TOKEN"
+done
+req GET "/members?limit=1" 200 -n 'list first page of members' "" -H "Authorization: Bearer $ACCESS_TOKEN"
+CURSOR=$(printf '%s' "$SMOKE_BODY" | json_get nextCursor)
+if [[ -z "$CURSOR" ]]; then
+    echo "FAIL  expected a nextCursor on a full first page" >&2
+    exit 1
+fi
+scenario 'first member page carries a nextCursor' pass
+req GET "/members?limit=1&cursor=$CURSOR" 200 -n 'list second page of members' "" -H "Authorization: Bearer $ACCESS_TOKEN"
+
 # 9. Negative cases — viewer has branches:read only, so members calls are 403.
 login "$SMOKE_VIEWER" "$SMOKE_VIEWER_PASSWORD"
 req POST /members 403 -n 'create denied without members:create' '{"branchId":"00000000-0000-0000-0000-000000000000","name":"Forbidden","email":"x@y.z"}' \

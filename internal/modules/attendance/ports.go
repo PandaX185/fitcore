@@ -13,7 +13,7 @@ import (
 type AttendanceRepository interface {
 	Create(ctx context.Context, a *Attendance) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Attendance, error)
-	ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Attendance, error)
+	ListByMember(ctx context.Context, q *MemberListQuery) ([]*Attendance, error)
 	// FindOpenByMember returns the member's open (checked-in) record, mapping
 	// none to ErrNotFound.
 	FindOpenByMember(ctx context.Context, memberID uuid.UUID) (*Attendance, error)

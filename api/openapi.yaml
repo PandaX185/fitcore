@@ -99,8 +99,8 @@ paths:
       x-permission: branches:read
       parameters:
         - $ref: "#/components/parameters/BranchQuery"
-        - $ref: "#/components/parameters/BranchLimit"
-        - $ref: "#/components/parameters/BranchCursor"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
           description: Page of branches
@@ -253,15 +253,16 @@ paths:
       summary: List all members
       operationId: listMembers
       x-permission: members:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of members
+          description: Page of members
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Member"
+                $ref: "#/components/schemas/MemberPage"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
@@ -352,15 +353,16 @@ paths:
       summary: List a member's membership history
       operationId: listMemberMemberships
       x-permission: memberships:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of memberships
+          description: Page of memberships
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Membership"
+                $ref: "#/components/schemas/MembershipPage"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -372,15 +374,16 @@ paths:
       summary: List a member's attendance records
       operationId: listMemberAttendance
       x-permission: attendance:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of attendance records
+          description: Page of attendance records
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Attendance"
+                $ref: "#/components/schemas/AttendancePage"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -392,15 +395,16 @@ paths:
       summary: List a member's invoices
       operationId: listMemberInvoices
       x-permission: billing:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of invoices
+          description: Page of invoices
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Invoice"
+                $ref: "#/components/schemas/InvoicePage"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -478,15 +482,16 @@ paths:
       summary: List membership packages
       operationId: listPackages
       x-permission: packages:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of packages
+          description: Page of packages
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Package"
+                $ref: "#/components/schemas/PackagePage"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
@@ -562,15 +567,15 @@ paths:
       parameters:
         - $ref: "#/components/parameters/BranchIDQuery"
         - $ref: "#/components/parameters/TrainerIDQuery"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of classes
+          description: Page of classes
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Class"
+                $ref: "#/components/schemas/ClassPage"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
@@ -658,15 +663,16 @@ paths:
       summary: List bookings for a class
       operationId: listClassBookings
       x-permission: bookings:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of bookings
+          description: Page of bookings
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Booking"
+                $ref: "#/components/schemas/BookingPage"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -885,15 +891,16 @@ paths:
       summary: List staff at a branch
       operationId: listBranchStaff
       x-permission: staff:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of staff
+          description: Page of staff
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Staff"
+                $ref: "#/components/schemas/StaffPage"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -969,15 +976,16 @@ paths:
       summary: List trainers at a branch
       operationId: listBranchTrainers
       x-permission: trainers:read
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
       responses:
         "200":
-          description: List of trainers
+          description: Page of trainers
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Trainer"
+                $ref: "#/components/schemas/TrainerPage"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1140,20 +1148,20 @@ components:
         substring
       schema:
         type: string
-    BranchLimit:
+    PageLimit:
       name: limit
       in: query
       required: false
-      description: Maximum number of branches to return (default 20, maximum 100)
+      description: Maximum number of items to return (default 20, maximum 100)
       schema:
         type: integer
         default: 20
         maximum: 100
-    BranchCursor:
+    PageCursor:
       name: cursor
       in: query
       required: false
-      description: Opaque cursor from a previous listBranches response for the next page
+      description: Opaque cursor from a previous page response for the next page
       schema:
         type: string
 
@@ -1651,6 +1659,114 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Branch"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    MemberPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    MembershipPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Membership"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    PackagePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Package"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    ClassPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Class"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    BookingPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    AttendancePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attendance"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    InvoicePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invoice"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    StaffPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Staff"
+        nextCursor:
+          type: string
+          description: >-
+            Opaque cursor for the next page; omitted when this is the last page
+    TrainerPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trainer"
         nextCursor:
           type: string
           description: >-

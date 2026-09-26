@@ -125,6 +125,14 @@ type AttendanceCheckOutRequest struct {
 	MemberId UUID `json:"memberId"`
 }
 
+// AttendancePage defines model for AttendancePage.
+type AttendancePage struct {
+	Items []Attendance `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // Booking defines model for Booking.
 type Booking struct {
 	BookedAt    Timestamp  `json:"bookedAt"`
@@ -149,6 +157,14 @@ type BookingCreateRequest struct {
 
 	// MemberId Example: 550e8400-e29b-41d4-a716-446655440000
 	MemberId UUID `json:"memberId"`
+}
+
+// BookingPage defines model for BookingPage.
+type BookingPage struct {
+	Items []Booking `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // BookingStatus defines model for BookingStatus.
@@ -220,6 +236,14 @@ type ClassCreateRequest struct {
 	TrainerId *UUID `json:"trainerId,omitempty"`
 }
 
+// ClassPage defines model for ClassPage.
+type ClassPage struct {
+	Items []Class `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // ClassUpdateRequest defines model for ClassUpdateRequest.
 type ClassUpdateRequest struct {
 	Capacity *int       `json:"capacity,omitempty"`
@@ -268,6 +292,14 @@ type InvoiceCreateRequest struct {
 
 	// MembershipId Example: 550e8400-e29b-41d4-a716-446655440000
 	MembershipId UUID `json:"membershipId"`
+}
+
+// InvoicePage defines model for InvoicePage.
+type InvoicePage struct {
+	Items []Invoice `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // InvoiceStatus defines model for InvoiceStatus.
@@ -322,6 +354,14 @@ type MemberCreateRequest struct {
 	Phone    *string             `json:"phone,omitempty"`
 }
 
+// MemberPage defines model for MemberPage.
+type MemberPage struct {
+	Items []Member `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // MemberStatus defines model for MemberStatus.
 type MemberStatus string
 
@@ -365,6 +405,14 @@ type MembershipCreateRequest struct {
 	PackageId UUID `json:"packageId"`
 }
 
+// MembershipPage defines model for MembershipPage.
+type MembershipPage struct {
+	Items []Membership `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // MembershipStatus defines model for MembershipStatus.
 type MembershipStatus string
 
@@ -396,6 +444,14 @@ type PackageCreateRequest struct {
 	DurationDays int    `json:"durationDays"`
 	Name         string `json:"name"`
 	PriceCents   int64  `json:"priceCents"`
+}
+
+// PackagePage defines model for PackagePage.
+type PackagePage struct {
+	Items []Package `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // PackageUpdateRequest defines model for PackageUpdateRequest.
@@ -439,6 +495,14 @@ type StaffCreateRequest struct {
 	Phone       *string             `json:"phone,omitempty"`
 }
 
+// StaffPage defines model for StaffPage.
+type StaffPage struct {
+	Items []Staff `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // StaffUpdateRequest defines model for StaffUpdateRequest.
 type StaffUpdateRequest struct {
 	Active      *bool                `json:"active,omitempty"`
@@ -476,6 +540,14 @@ type TrainerCreateRequest struct {
 	Phone    *string             `json:"phone,omitempty"`
 }
 
+// TrainerPage defines model for TrainerPage.
+type TrainerPage struct {
+	Items []Trainer `json:"items"`
+
+	// NextCursor Opaque cursor for the next page; omitted when this is the last page
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
 // TrainerUpdateRequest defines model for TrainerUpdateRequest.
 type TrainerUpdateRequest struct {
 	Active *bool                `json:"active,omitempty"`
@@ -493,17 +565,11 @@ type AttendanceID = UUID
 // BookingID Example: 550e8400-e29b-41d4-a716-446655440000
 type BookingID = UUID
 
-// BranchCursor defines model for BranchCursor.
-type BranchCursor = string
-
 // BranchID Example: 550e8400-e29b-41d4-a716-446655440000
 type BranchID = UUID
 
 // BranchIDQuery Example: 550e8400-e29b-41d4-a716-446655440000
 type BranchIDQuery = UUID
-
-// BranchLimit defines model for BranchLimit.
-type BranchLimit = int
 
 // BranchQuery defines model for BranchQuery.
 type BranchQuery = string
@@ -522,6 +588,12 @@ type MembershipID = UUID
 
 // PackageID Example: 550e8400-e29b-41d4-a716-446655440000
 type PackageID = UUID
+
+// PageCursor defines model for PageCursor.
+type PageCursor = string
+
+// PageLimit defines model for PageLimit.
+type PageLimit = int
 
 // StaffID Example: 550e8400-e29b-41d4-a716-446655440000
 type StaffID = UUID
@@ -555,11 +627,29 @@ type ListBranchesParams struct {
 	// Q Free-text search matching branch name or address as a case-insensitive substring
 	Q *BranchQuery `form:"q,omitempty" json:"q,omitempty"`
 
-	// Limit Maximum number of branches to return (default 20, maximum 100)
-	Limit *BranchLimit `form:"limit,omitempty" json:"limit,omitempty"`
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Cursor Opaque cursor from a previous listBranches response for the next page
-	Cursor *BranchCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListBranchStaffParams defines parameters for ListBranchStaff.
+type ListBranchStaffParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListBranchTrainersParams defines parameters for ListBranchTrainers.
+type ListBranchTrainersParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListClassesParams defines parameters for ListClasses.
@@ -569,6 +659,66 @@ type ListClassesParams struct {
 
 	// TrainerId Filter by trainer
 	TrainerId *TrainerIDQuery `form:"trainerId,omitempty" json:"trainerId,omitempty"`
+
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListClassBookingsParams defines parameters for ListClassBookings.
+type ListClassBookingsParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListMembersParams defines parameters for ListMembers.
+type ListMembersParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListMemberAttendanceParams defines parameters for ListMemberAttendance.
+type ListMemberAttendanceParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListMemberInvoicesParams defines parameters for ListMemberInvoices.
+type ListMemberInvoicesParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListMemberMembershipsParams defines parameters for ListMemberMemberships.
+type ListMemberMembershipsParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListPackagesParams defines parameters for ListPackages.
+type ListPackagesParams struct {
+	// Limit Maximum number of items to return (default 20, maximum 100)
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque cursor from a previous page response for the next page
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // CheckInJSONRequestBody defines body for CheckIn for application/json ContentType.
@@ -677,10 +827,10 @@ type ServerInterface interface {
 	UpdateBranch(c *gin.Context, branchId BranchID)
 	// ListBranchStaff List staff at a branch
 	// (GET /branches/{branchId}/staff)
-	ListBranchStaff(c *gin.Context, branchId BranchID)
+	ListBranchStaff(c *gin.Context, branchId BranchID, params ListBranchStaffParams)
 	// ListBranchTrainers List trainers at a branch
 	// (GET /branches/{branchId}/trainers)
-	ListBranchTrainers(c *gin.Context, branchId BranchID)
+	ListBranchTrainers(c *gin.Context, branchId BranchID, params ListBranchTrainersParams)
 	// ListClasses List classes
 	// (GET /classes)
 	ListClasses(c *gin.Context, params ListClassesParams)
@@ -698,7 +848,7 @@ type ServerInterface interface {
 	UpdateClass(c *gin.Context, classId ClassID)
 	// ListClassBookings List bookings for a class
 	// (GET /classes/{classId}/bookings)
-	ListClassBookings(c *gin.Context, classId ClassID)
+	ListClassBookings(c *gin.Context, classId ClassID, params ListClassBookingsParams)
 	// CreateInvoice Create an invoice
 	// (POST /invoices)
 	CreateInvoice(c *gin.Context)
@@ -710,7 +860,7 @@ type ServerInterface interface {
 	UpdateInvoice(c *gin.Context, invoiceId InvoiceID)
 	// ListMembers List all members
 	// (GET /members)
-	ListMembers(c *gin.Context)
+	ListMembers(c *gin.Context, params ListMembersParams)
 	// CreateMember Create a member
 	// (POST /members)
 	CreateMember(c *gin.Context)
@@ -725,13 +875,13 @@ type ServerInterface interface {
 	UpdateMember(c *gin.Context, memberId MemberID)
 	// ListMemberAttendance List a member's attendance records
 	// (GET /members/{memberId}/attendance)
-	ListMemberAttendance(c *gin.Context, memberId MemberID)
+	ListMemberAttendance(c *gin.Context, memberId MemberID, params ListMemberAttendanceParams)
 	// ListMemberInvoices List a member's invoices
 	// (GET /members/{memberId}/invoices)
-	ListMemberInvoices(c *gin.Context, memberId MemberID)
+	ListMemberInvoices(c *gin.Context, memberId MemberID, params ListMemberInvoicesParams)
 	// ListMemberMemberships List a member's membership history
 	// (GET /members/{memberId}/memberships)
-	ListMemberMemberships(c *gin.Context, memberId MemberID)
+	ListMemberMemberships(c *gin.Context, memberId MemberID, params ListMemberMembershipsParams)
 	// CreateMembership Purchase a membership
 	// (POST /memberships)
 	CreateMembership(c *gin.Context)
@@ -743,7 +893,7 @@ type ServerInterface interface {
 	UpdateMembership(c *gin.Context, membershipId MembershipID)
 	// ListPackages List membership packages
 	// (GET /packages)
-	ListPackages(c *gin.Context)
+	ListPackages(c *gin.Context, params ListPackagesParams)
 	// CreatePackage Create a membership package
 	// (POST /packages)
 	CreatePackage(c *gin.Context)
@@ -1056,6 +1206,25 @@ func (siw *ServerInterfaceWrapper) ListBranchStaff(c *gin.Context) {
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBranchStaffParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1063,7 +1232,7 @@ func (siw *ServerInterfaceWrapper) ListBranchStaff(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListBranchStaff(c, branchId)
+	siw.Handler.ListBranchStaff(c, branchId, params)
 }
 
 // ListBranchTrainers operation middleware
@@ -1081,6 +1250,25 @@ func (siw *ServerInterfaceWrapper) ListBranchTrainers(c *gin.Context) {
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBranchTrainersParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1088,7 +1276,7 @@ func (siw *ServerInterfaceWrapper) ListBranchTrainers(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListBranchTrainers(c, branchId)
+	siw.Handler.ListBranchTrainers(c, branchId, params)
 }
 
 // ListClasses operation middleware
@@ -1113,6 +1301,22 @@ func (siw *ServerInterfaceWrapper) ListClasses(c *gin.Context) {
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "trainerId", c.Request.URL.Query(), &params.TrainerId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter trainerId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -1229,6 +1433,25 @@ func (siw *ServerInterfaceWrapper) ListClassBookings(c *gin.Context) {
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListClassBookingsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1236,7 +1459,7 @@ func (siw *ServerInterfaceWrapper) ListClassBookings(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListClassBookings(c, classId)
+	siw.Handler.ListClassBookings(c, classId, params)
 }
 
 // CreateInvoice operation middleware
@@ -1305,6 +1528,28 @@ func (siw *ServerInterfaceWrapper) UpdateInvoice(c *gin.Context) {
 // ListMembers operation middleware
 func (siw *ServerInterfaceWrapper) ListMembers(c *gin.Context) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMembersParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1312,7 +1557,7 @@ func (siw *ServerInterfaceWrapper) ListMembers(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListMembers(c)
+	siw.Handler.ListMembers(c, params)
 }
 
 // CreateMember operation middleware
@@ -1418,6 +1663,25 @@ func (siw *ServerInterfaceWrapper) ListMemberAttendance(c *gin.Context) {
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemberAttendanceParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1425,7 +1689,7 @@ func (siw *ServerInterfaceWrapper) ListMemberAttendance(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListMemberAttendance(c, memberId)
+	siw.Handler.ListMemberAttendance(c, memberId, params)
 }
 
 // ListMemberInvoices operation middleware
@@ -1443,6 +1707,25 @@ func (siw *ServerInterfaceWrapper) ListMemberInvoices(c *gin.Context) {
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemberInvoicesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1450,7 +1733,7 @@ func (siw *ServerInterfaceWrapper) ListMemberInvoices(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListMemberInvoices(c, memberId)
+	siw.Handler.ListMemberInvoices(c, memberId, params)
 }
 
 // ListMemberMemberships operation middleware
@@ -1468,6 +1751,25 @@ func (siw *ServerInterfaceWrapper) ListMemberMemberships(c *gin.Context) {
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemberMembershipsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1475,7 +1777,7 @@ func (siw *ServerInterfaceWrapper) ListMemberMemberships(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListMemberMemberships(c, memberId)
+	siw.Handler.ListMemberMemberships(c, memberId, params)
 }
 
 // CreateMembership operation middleware
@@ -1544,6 +1846,28 @@ func (siw *ServerInterfaceWrapper) UpdateMembership(c *gin.Context) {
 // ListPackages operation middleware
 func (siw *ServerInterfaceWrapper) ListPackages(c *gin.Context) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPackagesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -1551,7 +1875,7 @@ func (siw *ServerInterfaceWrapper) ListPackages(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.ListPackages(c)
+	siw.Handler.ListPackages(c, params)
 }
 
 // CreatePackage operation middleware

@@ -9,12 +9,13 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/auth"
 	"github.com/PandaX185/fitcore/internal/modules/branches"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 type fakeRepo struct {
 	create       func(ctx context.Context, s *Staff) error
 	getByID      func(ctx context.Context, id uuid.UUID) (*Staff, error)
-	listByBranch func(ctx context.Context, branchID uuid.UUID) ([]*Staff, error)
+	listByBranch func(ctx context.Context, q *BranchListQuery) ([]*Staff, error)
 	update       func(ctx context.Context, id uuid.UUID, patch *Patch) error
 }
 
@@ -27,11 +28,11 @@ func (f fakeRepo) Create(ctx context.Context, s *Staff) error {
 func (f fakeRepo) GetByID(ctx context.Context, id uuid.UUID) (*Staff, error) {
 	return f.getByID(ctx, id)
 }
-func (f fakeRepo) ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*Staff, error) {
+func (f fakeRepo) ListByBranch(ctx context.Context, q *BranchListQuery) ([]*Staff, error) {
 	if f.listByBranch == nil {
 		return nil, nil
 	}
-	return f.listByBranch(ctx, branchID)
+	return f.listByBranch(ctx, q)
 }
 func (f fakeRepo) Update(ctx context.Context, id uuid.UUID, patch *Patch) error {
 	if f.update == nil {
@@ -161,22 +162,135 @@ func TestUpdateInvalid(t *testing.T) {
 func TestListByBranch(t *testing.T) {
 	branchID := uuid.New()
 	want := []*Staff{{ID: uuid.New()}}
-	svc := NewService(fakeRepo{listByBranch: func(_ context.Context, got uuid.UUID) ([]*Staff, error) {
-		if got != branchID {
-			t.Fatalf("ListByBranch = %v, want %v", got, branchID)
+	svc := NewService(fakeRepo{listByBranch: func(_ context.Context, q *BranchListQuery) ([]*Staff, error) {
+		if q.BranchID != branchID {
+			t.Fatalf("BranchListQuery(%+v)", q)
 		}
 		return want, nil
 	}}, existingBranch())
-	got, err := svc.ListByBranch(context.Background(), branchID)
-	if err != nil || len(got) != 1 {
-		t.Fatalf("ListByBranch = %v, %v", got, err)
+	res, err := svc.ListByBranch(context.Background(), branchID, BranchListParams{})
+	if err != nil || len(res.Items) != 1 {
+		t.Fatalf("ListByBranch = %v, %v", res, err)
 	}
 }
 
 func TestListByBranchNilID(t *testing.T) {
 	svc := NewService(fakeRepo{}, existingBranch())
-	if _, err := svc.ListByBranch(context.Background(), uuid.Nil); !errors.Is(err, ErrInvalidInput) {
+	if _, err := svc.ListByBranch(context.Background(), uuid.Nil, BranchListParams{}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("ListByBranch nil = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestListByBranchFirstPage(t *testing.T) {
+	branchID := uuid.New()
+	svc := NewService(fakeRepo{
+		listByBranch: func(_ context.Context, q *BranchListQuery) ([]*Staff, error) {
+			if q.Limit != paging.DefaultLimit+1 {
+				t.Fatalf("Limit = %d, want %d", q.Limit, paging.DefaultLimit+1)
+			}
+			if q.AfterName != "" || q.AfterID != uuid.Nil {
+				t.Fatalf("cursor start = %q/%v, want empty", q.AfterName, q.AfterID)
+			}
+			items := []*Staff{}
+			for i := 0; i < paging.DefaultLimit+1; i++ {
+				items = append(items, &Staff{ID: uuid.New(), Name: "B"})
+			}
+			return items, nil
+		},
+	}, existingBranch())
+
+	res, err := svc.ListByBranch(context.Background(), branchID, BranchListParams{})
+	if err != nil {
+		t.Fatalf("ListByBranch: unexpected error %v", err)
+	}
+	if len(res.Items) != paging.DefaultLimit {
+		t.Fatalf("items = %d, want %d", len(res.Items), paging.DefaultLimit)
+	}
+	if res.NextCursor == "" {
+		t.Fatal("NextCursor empty, want a value when a page is full")
+	}
+}
+
+func TestListByBranchLastPage(t *testing.T) {
+	svc := NewService(fakeRepo{
+		listByBranch: func(context.Context, *BranchListQuery) ([]*Staff, error) {
+			return []*Staff{{ID: uuid.New(), Name: "Only"}}, nil
+		},
+	}, existingBranch())
+
+	res, err := svc.ListByBranch(context.Background(), uuid.New(), BranchListParams{Limit: 20})
+	if err != nil {
+		t.Fatalf("ListByBranch: unexpected error %v", err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(res.Items))
+	}
+	if res.NextCursor != "" {
+		t.Fatalf("NextCursor = %q, want empty on the last page", res.NextCursor)
+	}
+}
+
+func TestListByBranchClampsLimit(t *testing.T) {
+	for _, tt := range []struct {
+		in   int
+		want int
+	}{
+		{in: 0, want: paging.DefaultLimit},
+		{in: -5, want: paging.DefaultLimit},
+		{in: 1000, want: paging.MaxLimit},
+	} {
+		t.Run("", func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				listByBranch: func(_ context.Context, q *BranchListQuery) ([]*Staff, error) {
+					if q.Limit != tt.want+1 {
+						t.Fatalf("repo Limit = %d, want %d", q.Limit, tt.want+1)
+					}
+					return nil, nil
+				},
+			}, existingBranch())
+			if _, err := svc.ListByBranch(context.Background(), uuid.New(), BranchListParams{Limit: tt.in}); err != nil {
+				t.Fatalf("ListByBranch: unexpected error %v", err)
+			}
+		})
+	}
+}
+
+func TestListByBranchCursorRoundTrip(t *testing.T) {
+	const name = "Next"
+	id := uuid.New()
+	cursor := paging.Cursor{Key: name, ID: id}.Encode()
+
+	svc := NewService(fakeRepo{
+		listByBranch: func(_ context.Context, q *BranchListQuery) ([]*Staff, error) {
+			if q.AfterName != name {
+				t.Fatalf("AfterName = %q, want %q", q.AfterName, name)
+			}
+			if q.AfterID != id {
+				t.Fatalf("AfterID = %v, want %v", q.AfterID, id)
+			}
+			return nil, nil
+		},
+	}, existingBranch())
+
+	if _, err := svc.ListByBranch(context.Background(), uuid.New(), BranchListParams{Cursor: cursor}); err != nil {
+		t.Fatalf("ListByBranch: unexpected error %v", err)
+	}
+}
+
+func TestListByBranchRejectsBadCursor(t *testing.T) {
+	for _, cur := range []string{"%%%", "not-base64-!", "eyJuYW1lIjoibiJ9"} {
+		t.Run(cur, func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				listByBranch: func(context.Context, *BranchListQuery) ([]*Staff, error) {
+					t.Fatal("repo must not be called for a bad cursor")
+					return nil, nil
+				},
+			}, existingBranch())
+			_, err := svc.ListByBranch(context.Background(), uuid.New(), BranchListParams{Cursor: cur})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("ListByBranch error = %v, want ErrInvalidInput", err)
+			}
+		})
 	}
 }
 

@@ -44,3 +44,30 @@ type Patch struct {
 	Status    *Status
 	ExpiresAt *time.Time
 }
+
+// MemberListQuery is the paginated, member-scoped query handed to
+// persistence.
+type MemberListQuery struct {
+	// MemberID scopes the result to one member.
+	MemberID uuid.UUID
+	// Limit is the maximum number of rows to return.
+	Limit int
+	// AfterStartsAt and AfterID form the exclusive cursor key into the
+	// (starts_on DESC, id) ordering; AfterID is zero on the first page.
+	// AfterStartsAt carries an RFC3339 timestamp as text.
+	AfterStartsAt string
+	AfterID       uuid.UUID
+}
+
+// MemberListParams is the service-facing page request.
+type MemberListParams struct {
+	Limit  int
+	Cursor string
+}
+
+// MemberListResult is a page of memberships plus the cursor for the next
+// page, if any.
+type MemberListResult struct {
+	Items      []*Membership
+	NextCursor string
+}

@@ -13,7 +13,7 @@ import (
 type MembershipRepository interface {
 	Create(ctx context.Context, m *Membership) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Membership, error)
-	ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Membership, error)
+	ListByMember(ctx context.Context, q *MemberListQuery) ([]*Membership, error)
 	Update(ctx context.Context, id uuid.UUID, patch *Patch) error
 	// HasActiveByMember reports whether the member holds a live membership;
 	// the store's partial unique index backs the same invariant at rest.

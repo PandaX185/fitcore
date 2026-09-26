@@ -23,7 +23,7 @@ type staffService interface {
 	Get(ctx context.Context, id uuid.UUID) (*staff.Staff, error)
 	Create(ctx context.Context, branchID uuid.UUID, name, email, phone string, permissions []auth.Permission) (*staff.Staff, error)
 	Update(ctx context.Context, id uuid.UUID, patch staff.Patch) (*staff.Staff, error)
-	ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*staff.Staff, error)
+	ListByBranch(ctx context.Context, branchID uuid.UUID, p staff.BranchListParams) (*staff.BranchListResult, error)
 }
 
 type staffHandler struct {
@@ -32,17 +32,28 @@ type staffHandler struct {
 	metrics *telemetry.Metrics
 }
 
-func (h *staffHandler) ListBranchStaff(c *gin.Context, branchId oapi.BranchID) {
-	staff, err := h.svc.ListByBranch(c.Request.Context(), uuid.UUID(branchId))
+func (h *staffHandler) ListBranchStaff(c *gin.Context, branchId oapi.BranchID, params oapi.ListBranchStaffParams) {
+	p := staff.BranchListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.ListByBranch(c.Request.Context(), uuid.UUID(branchId), p)
 	if err != nil {
 		h.fail(c, "listBranchStaff", err)
 		return
 	}
-	items := make([]oapi.Staff, 0, len(staff))
-	for _, s := range staff {
+	items := make([]oapi.Staff, 0, len(res.Items))
+	for _, s := range res.Items {
 		items = append(items, toStaffResponse(s))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.StaffPage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 func (h *staffHandler) CreateStaff(c *gin.Context) {

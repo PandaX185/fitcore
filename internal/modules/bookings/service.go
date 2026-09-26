@@ -9,6 +9,7 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/classes"
 	"github.com/PandaX185/fitcore/internal/modules/members"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 // Service implements the class-booking business rules on the ports.
@@ -94,10 +95,32 @@ func (s *Service) Cancel(ctx context.Context, id uuid.UUID) (*Booking, error) {
 	return existing, nil
 }
 
-// ListByClass returns the bookings for a class, for roll-call rendering.
-func (s *Service) ListByClass(ctx context.Context, classID uuid.UUID) ([]*Booking, error) {
+// ListByClass returns one page of bookings for a class ordered by
+// (created_at, id), for roll-call rendering, with an opaque cursor for the
+// next page when more rows remain.
+func (s *Service) ListByClass(ctx context.Context, classID uuid.UUID, p ClassListParams) (*ClassListResult, error) {
 	if classID == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
-	return s.repo.ListByClass(ctx, classID)
+	limit := paging.Limit(p.Limit)
+	cursor, err := paging.DecodeCursor(p.Cursor)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	items, err := s.repo.ListByClass(ctx, &ClassListQuery{
+		ClassID:       classID,
+		Limit:         limit + 1,
+		AfterBookedAt: cursor.Key,
+		AfterID:       cursor.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := &ClassListResult{Items: items}
+	if len(items) > limit {
+		res.Items = items[:limit]
+		last := items[limit-1]
+		res.NextCursor = paging.Cursor{Key: last.BookedAt.UTC().Format(time.RFC3339Nano), ID: last.ID}.Encode()
+	}
+	return res, nil
 }

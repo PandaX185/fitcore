@@ -21,7 +21,7 @@ type fakeMemberService struct {
 	create func(ctx context.Context, branchID uuid.UUID, name, email, phone string) (*members.Member, error)
 	update func(ctx context.Context, id uuid.UUID, patch members.Patch) (*members.Member, error)
 	delete func(ctx context.Context, id uuid.UUID) error
-	list   func(ctx context.Context) ([]*members.Member, error)
+	list   func(ctx context.Context, p members.ListParams) (*members.ListResult, error)
 }
 
 func (f fakeMemberService) Get(ctx context.Context, id uuid.UUID) (*members.Member, error) {
@@ -36,8 +36,8 @@ func (f fakeMemberService) Update(ctx context.Context, id uuid.UUID, patch membe
 func (f fakeMemberService) Delete(ctx context.Context, id uuid.UUID) error {
 	return f.delete(ctx, id)
 }
-func (f fakeMemberService) List(ctx context.Context) ([]*members.Member, error) {
-	return f.list(ctx)
+func (f fakeMemberService) List(ctx context.Context, p members.ListParams) (*members.ListResult, error) {
+	return f.list(ctx, p)
 }
 
 func newMembersTestRouter(svc memberService) *gin.Engine {
@@ -250,27 +250,34 @@ func TestDeleteMemberNotFound(t *testing.T) {
 }
 
 func TestListMembers(t *testing.T) {
-	svc := fakeMemberService{list: func(context.Context) ([]*members.Member, error) {
-		return []*members.Member{{ID: uuid.New(), Name: "Ada", Email: "ada@example.com", Status: members.StatusActive}}, nil
+	cursor := "abc"
+	svc := fakeMemberService{list: func(_ context.Context, p members.ListParams) (*members.ListResult, error) {
+		return &members.ListResult{
+			Items:      []*members.Member{{ID: uuid.New(), Name: "Ada", Email: "ada@example.com", Status: members.StatusActive}},
+			NextCursor: cursor,
+		}, nil
 	}}
 	rec := httptest.NewRecorder()
-	newMembersTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/members", nil))
+	newMembersTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/members?limit=1", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
 	}
-	var got []oapi.Member
+	var got oapi.MemberPage
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if len(got) != 1 || got[0].Name != "Ada" {
-		t.Fatalf("items = %+v", got)
+	if len(got.Items) != 1 || got.Items[0].Name != "Ada" {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	if got.NextCursor == nil || *got.NextCursor != cursor {
+		t.Fatalf("nextCursor = %v, want %q", got.NextCursor, cursor)
 	}
 }
 
 func TestListMembersEmpty(t *testing.T) {
-	svc := fakeMemberService{list: func(context.Context) ([]*members.Member, error) {
-		return []*members.Member{}, nil
+	svc := fakeMemberService{list: func(context.Context, members.ListParams) (*members.ListResult, error) {
+		return &members.ListResult{Items: []*members.Member{}}, nil
 	}}
 	rec := httptest.NewRecorder()
 	newMembersTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/members", nil))
@@ -278,8 +285,35 @@ func TestListMembersEmpty(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
 	}
-	if body := strings.TrimSpace(rec.Body.String()); body != `[]` {
-		t.Fatalf("body = %s, want %q", body, `[]`)
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"items":[]}` {
+		t.Fatalf("body = %s, want %q", body, `{"items":[]}`)
+	}
+}
+
+func TestListMembersPassesParams(t *testing.T) {
+	svc := fakeMemberService{list: func(_ context.Context, p members.ListParams) (*members.ListResult, error) {
+		if p.Limit != 5 || p.Cursor != "cur" {
+			t.Fatalf("ListParams = %+v", p)
+		}
+		return &members.ListResult{Items: []*members.Member{}}, nil
+	}}
+	rec := httptest.NewRecorder()
+	newMembersTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/members?limit=5&cursor=cur", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListMembersInvalid(t *testing.T) {
+	svc := fakeMemberService{list: func(context.Context, members.ListParams) (*members.ListResult, error) {
+		return nil, members.ErrInvalidInput
+	}}
+	rec := httptest.NewRecorder()
+	newMembersTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/members?cursor=bad", nil))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
 	}
 }
 

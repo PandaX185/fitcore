@@ -82,9 +82,14 @@ func (r *MemberRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// List returns all members ordered by (name, id) for stable paging.
-func (r *MemberRepository) List(ctx context.Context) ([]*members.Member, error) {
+// List returns rows ordered by (name, id), applying the exclusive cursor key
+// and capping the result at the requested limit.
+func (r *MemberRepository) List(ctx context.Context, q *members.ListQuery) ([]*members.Member, error) {
+	db := r.db.Gorm().WithContext(ctx)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
+	}
 	var ms []*members.Member
-	err := r.db.Gorm().WithContext(ctx).Order("name, id").Find(&ms).Error
+	err := db.Order("name, id").Limit(q.Limit).Find(&ms).Error
 	return ms, err
 }

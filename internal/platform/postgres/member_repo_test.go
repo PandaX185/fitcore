@@ -195,7 +195,7 @@ func TestMemberRepositoryList(t *testing.T) {
 		})
 	}
 
-	got, err := repo.List(ctx)
+	got, err := repo.List(ctx, &members.ListQuery{Limit: 100})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -215,6 +215,68 @@ func TestMemberRepositoryList(t *testing.T) {
 		if order[wantOrder[i-1]] > order[wantOrder[i]] {
 			t.Fatalf("List not ordered: %+v", got)
 		}
+	}
+}
+
+func TestMemberRepositoryListPaginates(t *testing.T) {
+	db := testutil.DB(t)
+	repo := postgres.NewMemberRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+
+	names := []string{"Plumb", "Quill", "Ridge", "Slate"}
+	for _, n := range names {
+		id := uuid.New()
+		if err := repo.Create(ctx, &members.Member{
+			ID: id, BranchID: branchID, Name: n, Email: n + "@example.com",
+		}); err != nil {
+			t.Fatalf("Create(%s): %v", n, err)
+		}
+		t.Cleanup(func() {
+			_ = db.Gorm().WithContext(ctx).Unscoped().Delete(&members.Member{}, "id = ?", id).Error
+		})
+	}
+
+	var collected []string
+	var afterName string
+	var afterID uuid.UUID
+	for {
+		res, err := repo.List(ctx, &members.ListQuery{Limit: 2, AfterName: afterName, AfterID: afterID})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(res) == 0 {
+			break
+		}
+		for _, m := range res {
+			collected = append(collected, m.Name)
+		}
+		afterName = res[len(res)-1].Name
+		afterID = res[len(res)-1].ID
+		if len(res) < 2 {
+			break
+		}
+	}
+
+	// Page boundaries must produce every inserted row, each row in name order
+	// relative to the others (the database is shared, so other rows may
+	// appear between them).
+	sort := []string{"Plumb", "Quill", "Ridge", "Slate"}
+	pos := map[string]int{}
+	for i, n := range collected {
+		pos[n] = i
+	}
+	prev := -1
+	for _, n := range sort {
+		p, ok := pos[n]
+		if !ok {
+			t.Fatalf("missing row %q after paging: %v", n, collected)
+		}
+		if p <= prev {
+			t.Fatalf("rows out of order after paging: %v", collected)
+		}
+		prev = p
 	}
 }
 

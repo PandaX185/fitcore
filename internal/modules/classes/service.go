@@ -10,6 +10,7 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/branches"
 	"github.com/PandaX185/fitcore/internal/modules/trainers"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 // Service implements the class-scheduling business rules on the ports.
@@ -117,10 +118,33 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// List returns classes, optionally filtered by branch and trainer.
-func (s *Service) List(ctx context.Context, branchID *uuid.UUID, trainerID *uuid.UUID) ([]*Class, error) {
-	if branchID != nil && *branchID == uuid.Nil {
+// List returns one page of classes ordered by (starts_at, id),
+// optionally filtered by branch and trainer, with an opaque cursor for the
+// next page when more rows remain.
+func (s *Service) List(ctx context.Context, p ListParams) (*ListResult, error) {
+	if p.BranchID != nil && *p.BranchID == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
-	return s.repo.List(ctx, branchID, trainerID)
+	limit := paging.Limit(p.Limit)
+	cursor, err := paging.DecodeCursor(p.Cursor)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	items, err := s.repo.List(ctx, &ListQuery{
+		BranchID:      p.BranchID,
+		TrainerID:     p.TrainerID,
+		Limit:         limit + 1,
+		AfterStartsAt: cursor.Key,
+		AfterID:       cursor.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := &ListResult{Items: items}
+	if len(items) > limit {
+		res.Items = items[:limit]
+		last := items[limit-1]
+		res.NextCursor = paging.Cursor{Key: last.StartsAt.UTC().Format(time.RFC3339Nano), ID: last.ID}.Encode()
+	}
+	return res, nil
 }

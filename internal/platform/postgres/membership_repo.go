@@ -55,11 +55,17 @@ func (r *MembershipRepository) GetByID(ctx context.Context, id uuid.UUID) (*memb
 	return row.toMembership(), nil
 }
 
-func (r *MembershipRepository) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*memberships.Membership, error) {
+// ListByMember returns one member's memberships ordered by
+// (starts_on DESC, id), applying the exclusive cursor key and capping the
+// result at the requested limit.
+func (r *MembershipRepository) ListByMember(ctx context.Context, q *memberships.MemberListQuery) ([]*memberships.Membership, error) {
+	db := r.db.Gorm().WithContext(ctx).Where("member_id = ?", q.MemberID)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(starts_on < ?::timestamptz OR (starts_on = ?::timestamptz AND id > ?))",
+			q.AfterStartsAt, q.AfterStartsAt, q.AfterID)
+	}
 	var rows []membershipRow
-	err := r.db.Gorm().WithContext(ctx).
-		Where("member_id = ?", memberID).
-		Order("starts_on DESC, id").Find(&rows).Error
+	err := db.Order("starts_on DESC, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

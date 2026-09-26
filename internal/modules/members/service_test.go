@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 type fakeRepo struct {
@@ -13,7 +15,7 @@ type fakeRepo struct {
 	getByID func(ctx context.Context, id uuid.UUID) (*Member, error)
 	update  func(ctx context.Context, id uuid.UUID, patch *Patch) error
 	delete  func(ctx context.Context, id uuid.UUID) error
-	list    func(ctx context.Context) ([]*Member, error)
+	list    func(ctx context.Context, q *ListQuery) ([]*Member, error)
 }
 
 func (f fakeRepo) Create(ctx context.Context, m *Member) error {
@@ -37,11 +39,11 @@ func (f fakeRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return f.delete(ctx, id)
 }
-func (f fakeRepo) List(ctx context.Context) ([]*Member, error) {
+func (f fakeRepo) List(ctx context.Context, q *ListQuery) ([]*Member, error) {
 	if f.list == nil {
 		return nil, nil
 	}
-	return f.list(ctx)
+	return f.list(ctx, q)
 }
 
 func TestServiceGet(t *testing.T) {
@@ -258,19 +260,116 @@ func TestServiceDeleteNotFound(t *testing.T) {
 	}
 }
 
-func TestServiceList(t *testing.T) {
-	want := []*Member{{ID: uuid.New()}, {ID: uuid.New()}}
+func TestServiceListFirstPage(t *testing.T) {
 	svc := NewService(fakeRepo{
-		list: func(context.Context) ([]*Member, error) {
-			return want, nil
+		list: func(_ context.Context, q *ListQuery) ([]*Member, error) {
+			if q.Limit != paging.DefaultLimit+1 {
+				t.Fatalf("Limit = %d, want %d", q.Limit, paging.DefaultLimit+1)
+			}
+			if q.AfterName != "" || q.AfterID != uuid.Nil {
+				t.Fatalf("cursor start = %q/%v, want empty", q.AfterName, q.AfterID)
+			}
+			items := []*Member{}
+			for i := 0; i < paging.DefaultLimit+1; i++ {
+				items = append(items, &Member{ID: uuid.New(), Name: "B"})
+			}
+			return items, nil
 		},
 	})
-	got, err := svc.List(context.Background())
+
+	res, err := svc.List(context.Background(), ListParams{})
 	if err != nil {
 		t.Fatalf("List: unexpected error %v", err)
 	}
-	if len(got) != len(want) {
-		t.Fatalf("List = %d items, want %d", len(got), len(want))
+	if len(res.Items) != paging.DefaultLimit {
+		t.Fatalf("items = %d, want %d", len(res.Items), paging.DefaultLimit)
+	}
+	if res.NextCursor == "" {
+		t.Fatal("NextCursor empty, want a value when a page is full")
+	}
+}
+
+func TestServiceListLastPage(t *testing.T) {
+	svc := NewService(fakeRepo{
+		list: func(context.Context, *ListQuery) ([]*Member, error) {
+			return []*Member{{ID: uuid.New(), Name: "Only"}}, nil
+		},
+	})
+
+	res, err := svc.List(context.Background(), ListParams{Limit: 20})
+	if err != nil {
+		t.Fatalf("List: unexpected error %v", err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(res.Items))
+	}
+	if res.NextCursor != "" {
+		t.Fatalf("NextCursor = %q, want empty on the last page", res.NextCursor)
+	}
+}
+
+func TestServiceListClampsLimit(t *testing.T) {
+	for _, tt := range []struct {
+		in   int
+		want int
+	}{
+		{in: 0, want: paging.DefaultLimit},
+		{in: -5, want: paging.DefaultLimit},
+		{in: 1000, want: paging.MaxLimit},
+	} {
+		t.Run("", func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				list: func(_ context.Context, q *ListQuery) ([]*Member, error) {
+					if q.Limit != tt.want+1 {
+						t.Fatalf("repo Limit = %d, want %d", q.Limit, tt.want+1)
+					}
+					return nil, nil
+				},
+			})
+			if _, err := svc.List(context.Background(), ListParams{Limit: tt.in}); err != nil {
+				t.Fatalf("List: unexpected error %v", err)
+			}
+		})
+	}
+}
+
+func TestServiceListCursorRoundTrip(t *testing.T) {
+	const name = "Next"
+	id := uuid.New()
+	cursor := paging.Cursor{Key: name, ID: id}.Encode()
+
+	svc := NewService(fakeRepo{
+		list: func(_ context.Context, q *ListQuery) ([]*Member, error) {
+			if q.AfterName != name {
+				t.Fatalf("AfterName = %q, want %q", q.AfterName, name)
+			}
+			if q.AfterID != id {
+				t.Fatalf("AfterID = %v, want %v", q.AfterID, id)
+			}
+			return nil, nil
+		},
+	})
+
+	if _, err := svc.List(context.Background(), ListParams{Cursor: cursor}); err != nil {
+		t.Fatalf("List: unexpected error %v", err)
+	}
+}
+
+func TestServiceListRejectsBadCursor(t *testing.T) {
+	// "eyJuYW1lIjoibiJ9" is base64 for {"name":"n"} with no id.
+	for _, cur := range []string{"%%%", "not-base64-!", "eyJuYW1lIjoibiJ9"} {
+		t.Run(cur, func(t *testing.T) {
+			svc := NewService(fakeRepo{
+				list: func(context.Context, *ListQuery) ([]*Member, error) {
+					t.Fatal("repo must not be called for a bad cursor")
+					return nil, nil
+				},
+			})
+			_, err := svc.List(context.Background(), ListParams{Cursor: cur})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("List error = %v, want ErrInvalidInput", err)
+			}
+		})
 	}
 }
 

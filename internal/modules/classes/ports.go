@@ -17,7 +17,7 @@ type ClassRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	// List supports filtering by branch and/or trainer. Nil filters mean the
 	// corresponding constraint is omitted.
-	List(ctx context.Context, branchID *uuid.UUID, trainerID *uuid.UUID) ([]*Class, error)
+	List(ctx context.Context, q *ListQuery) ([]*Class, error)
 }
 
 // BranchReader is the slice of the branches store classes needs.

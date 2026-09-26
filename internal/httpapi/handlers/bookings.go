@@ -20,7 +20,7 @@ type bookingService interface {
 	Get(ctx context.Context, id uuid.UUID) (*bookings.Booking, error)
 	Create(ctx context.Context, classID, memberID uuid.UUID) (*bookings.Booking, error)
 	Cancel(ctx context.Context, id uuid.UUID) (*bookings.Booking, error)
-	ListByClass(ctx context.Context, classID uuid.UUID) ([]*bookings.Booking, error)
+	ListByClass(ctx context.Context, classID uuid.UUID, p bookings.ClassListParams) (*bookings.ClassListResult, error)
 }
 
 type bookingsHandler struct {
@@ -61,17 +61,28 @@ func (h *bookingsHandler) CancelBooking(c *gin.Context, bookingId oapi.BookingID
 	httpx.JSON(c, http.StatusOK, toBookingResponse(b))
 }
 
-func (h *bookingsHandler) ListClassBookings(c *gin.Context, classId oapi.ClassID) {
-	bs, err := h.svc.ListByClass(c.Request.Context(), uuid.UUID(classId))
+func (h *bookingsHandler) ListClassBookings(c *gin.Context, classId oapi.ClassID, params oapi.ListClassBookingsParams) {
+	p := bookings.ClassListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.ListByClass(c.Request.Context(), uuid.UUID(classId), p)
 	if err != nil {
 		h.fail(c, "listClassBookings", err)
 		return
 	}
-	items := make([]oapi.Booking, 0, len(bs))
-	for _, b := range bs {
+	items := make([]oapi.Booking, 0, len(res.Items))
+	for _, b := range res.Items {
 		items = append(items, toBookingResponse(b))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.BookingPage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 // fail maps bookings sentinel errors to HTTP statuses. Capacity, duplicate

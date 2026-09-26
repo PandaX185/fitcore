@@ -138,22 +138,22 @@ func TestServiceDeletePropagatesRepoErrors(t *testing.T) {
 
 func TestServiceListEmpty(t *testing.T) {
 	svc := NewService(fakeRepo{
-		list: func(context.Context) ([]*Member, error) { return nil, nil },
+		list: func(context.Context, *ListQuery) ([]*Member, error) { return nil, nil },
 	})
-	got, err := svc.List(context.Background())
+	res, err := svc.List(context.Background(), ListParams{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(got) != 0 {
-		t.Fatalf("List = %d items, want 0", len(got))
+	if len(res.Items) != 0 {
+		t.Fatalf("List = %d items, want 0", len(res.Items))
 	}
 }
 
 func TestServiceListPropagatesRepoErrors(t *testing.T) {
 	svc := NewService(fakeRepo{
-		list: func(context.Context) ([]*Member, error) { return nil, errSentinel },
+		list: func(context.Context, *ListQuery) ([]*Member, error) { return nil, errSentinel },
 	})
-	if _, err := svc.List(context.Background()); !errors.Is(err, errSentinel) {
+	if _, err := svc.List(context.Background(), ListParams{}); !errors.Is(err, errSentinel) {
 		t.Fatalf("List error = %v, want %v", err, errSentinel)
 	}
 }

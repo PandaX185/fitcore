@@ -20,7 +20,7 @@ type packageService interface {
 	Get(ctx context.Context, id uuid.UUID) (*packages.Package, error)
 	Create(ctx context.Context, name string, durationDays int, priceCents int64, currency string) (*packages.Package, error)
 	Update(ctx context.Context, id uuid.UUID, patch packages.Patch) (*packages.Package, error)
-	List(ctx context.Context) ([]*packages.Package, error)
+	List(ctx context.Context, p packages.ListParams) (*packages.ListResult, error)
 }
 
 type packagesHandler struct {
@@ -29,17 +29,29 @@ type packagesHandler struct {
 	metrics *telemetry.Metrics
 }
 
-func (h *packagesHandler) ListPackages(c *gin.Context) {
-	ps, err := h.svc.List(c.Request.Context())
+func (h *packagesHandler) ListPackages(c *gin.Context, params oapi.ListPackagesParams) {
+	p := packages.ListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+
+	res, err := h.svc.List(c.Request.Context(), p)
 	if err != nil {
 		h.fail(c, "listPackages", err)
 		return
 	}
-	items := make([]oapi.Package, 0, len(ps))
-	for _, p := range ps {
+	items := make([]oapi.Package, 0, len(res.Items))
+	for _, p := range res.Items {
 		items = append(items, toPackageResponse(p))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.PackagePage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 func (h *packagesHandler) CreatePackage(c *gin.Context) {

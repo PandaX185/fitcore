@@ -20,7 +20,7 @@ type membershipService interface {
 	Get(ctx context.Context, id uuid.UUID) (*memberships.Membership, error)
 	Create(ctx context.Context, memberID, packageID, branchID uuid.UUID) (*memberships.Membership, error)
 	Update(ctx context.Context, id uuid.UUID, patch memberships.Patch) (*memberships.Membership, error)
-	ListByMember(ctx context.Context, memberID uuid.UUID) ([]*memberships.Membership, error)
+	ListByMember(ctx context.Context, memberID uuid.UUID, p memberships.MemberListParams) (*memberships.MemberListResult, error)
 }
 
 type membershipsHandler struct {
@@ -70,17 +70,28 @@ func (h *membershipsHandler) UpdateMembership(c *gin.Context, membershipId oapi.
 	httpx.JSON(c, http.StatusOK, toMembershipResponse(m))
 }
 
-func (h *membershipsHandler) ListMemberMemberships(c *gin.Context, memberId oapi.MemberID) {
-	ms, err := h.svc.ListByMember(c.Request.Context(), uuid.UUID(memberId))
+func (h *membershipsHandler) ListMemberMemberships(c *gin.Context, memberId oapi.MemberID, params oapi.ListMemberMembershipsParams) {
+	p := memberships.MemberListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.ListByMember(c.Request.Context(), uuid.UUID(memberId), p)
 	if err != nil {
 		h.fail(c, "listMemberMemberships", err)
 		return
 	}
-	items := make([]oapi.Membership, 0, len(ms))
-	for _, m := range ms {
+	items := make([]oapi.Membership, 0, len(res.Items))
+	for _, m := range res.Items {
 		items = append(items, toMembershipResponse(m))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.MembershipPage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 // fail maps memberships sentinel errors to HTTP statuses: client input is a

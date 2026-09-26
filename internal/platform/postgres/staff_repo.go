@@ -56,11 +56,15 @@ func (r *StaffRepository) GetByID(ctx context.Context, id uuid.UUID) (*staff.Sta
 	return row.toStaff(), nil
 }
 
-func (r *StaffRepository) ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*staff.Staff, error) {
+// ListByBranch returns one branch's staff ordered by (name, id), applying
+// the exclusive cursor key and capping the result at the requested limit.
+func (r *StaffRepository) ListByBranch(ctx context.Context, q *staff.BranchListQuery) ([]*staff.Staff, error) {
+	db := r.db.Gorm().WithContext(ctx).Where("branch_id = ?", q.BranchID)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
+	}
 	var rows []staffRow
-	err := r.db.Gorm().WithContext(ctx).
-		Where("branch_id = ?", branchID).
-		Order("name, id").Find(&rows).Error
+	err := db.Order("name, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

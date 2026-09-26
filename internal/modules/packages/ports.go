@@ -10,6 +10,6 @@ import (
 type PackageRepository interface {
 	Create(ctx context.Context, p *Package) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Package, error)
-	List(ctx context.Context) ([]*Package, error)
+	List(ctx context.Context, q *ListQuery) ([]*Package, error)
 	Update(ctx context.Context, id uuid.UUID, patch *Patch) error
 }

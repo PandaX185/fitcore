@@ -22,7 +22,7 @@ type classService interface {
 	Create(ctx context.Context, branchID uuid.UUID, trainerID *uuid.UUID, name string, startsAt, endsAt time.Time, capacity int) (*classes.Class, error)
 	Update(ctx context.Context, id uuid.UUID, patch classes.Patch) (*classes.Class, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	List(ctx context.Context, branchID *uuid.UUID, trainerID *uuid.UUID) ([]*classes.Class, error)
+	List(ctx context.Context, p classes.ListParams) (*classes.ListResult, error)
 }
 
 type classesHandler struct {
@@ -32,25 +32,35 @@ type classesHandler struct {
 }
 
 func (h *classesHandler) ListClasses(c *gin.Context, params oapi.ListClassesParams) {
-	var branchID, trainerID *uuid.UUID
+	p := classes.ListParams{}
 	if params.BranchId != nil {
 		id := uuid.UUID(*params.BranchId)
-		branchID = &id
+		p.BranchID = &id
 	}
 	if params.TrainerId != nil {
 		id := uuid.UUID(*params.TrainerId)
-		trainerID = &id
+		p.TrainerID = &id
 	}
-	cs, err := h.svc.List(c.Request.Context(), branchID, trainerID)
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.List(c.Request.Context(), p)
 	if err != nil {
 		h.fail(c, "listClasses", err)
 		return
 	}
-	items := make([]oapi.Class, 0, len(cs))
-	for _, cl := range cs {
+	items := make([]oapi.Class, 0, len(res.Items))
+	for _, cl := range res.Items {
 		items = append(items, toClassResponse(cl))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.ClassPage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 func (h *classesHandler) CreateClass(c *gin.Context) {

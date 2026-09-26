@@ -90,16 +90,19 @@ func (r *ClassRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ClassRepository) List(ctx context.Context, branchID *uuid.UUID, trainerID *uuid.UUID) ([]*classes.Class, error) {
-	q := r.db.Gorm().WithContext(ctx)
-	if branchID != nil && *branchID != uuid.Nil {
-		q = q.Where("branch_id = ?", *branchID)
+func (r *ClassRepository) List(ctx context.Context, q *classes.ListQuery) ([]*classes.Class, error) {
+	db := r.db.Gorm().WithContext(ctx)
+	if q.BranchID != nil && *q.BranchID != uuid.Nil {
+		db = db.Where("branch_id = ?", *q.BranchID)
 	}
-	if trainerID != nil && *trainerID != uuid.Nil {
-		q = q.Where("trainer_id = ?", *trainerID)
+	if q.TrainerID != nil && *q.TrainerID != uuid.Nil {
+		db = db.Where("trainer_id = ?", *q.TrainerID)
+	}
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(starts_at, id) > (?::timestamptz, ?)", q.AfterStartsAt, q.AfterID)
 	}
 	var rows []classRow
-	err := q.Order("starts_at, id").Find(&rows).Error
+	err := db.Order("starts_at, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

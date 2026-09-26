@@ -12,7 +12,7 @@ import (
 type StaffRepository interface {
 	Create(ctx context.Context, s *Staff) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Staff, error)
-	ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*Staff, error)
+	ListByBranch(ctx context.Context, q *BranchListQuery) ([]*Staff, error)
 	Update(ctx context.Context, id uuid.UUID, patch *Patch) error
 }
 

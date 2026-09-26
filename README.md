@@ -108,6 +108,13 @@ All endpoints defined in the spec are implemented in `internal/httpapi/handlers`
 Routes are permission-gated: each requires a bearer token with the matching
 `<module>:<verb>` grant (e.g. `branches:create`).
 
+Every list endpoint paginates with the same contract: `?limit` (default 20,
+maximum 100) and `?cursor` (the opaque `nextCursor` from the previous page).
+Responses are `{items: [...], nextCursor?}`; `nextCursor` is omitted on the
+last page. Rows are keyset-ordered per resource — by name for members,
+packages, staff, trainers and branches, by start time for classes, by booking
+time for bookings, and newest-first for memberships, attendance and invoices.
+
 ## Testing
 
 - **Unit tests** (`just test`) — service rules and handlers via table-driven

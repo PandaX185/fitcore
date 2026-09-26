@@ -9,6 +9,7 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/memberships"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 // Service implements the attendance business rules on the ports.
@@ -94,9 +95,32 @@ func (s *Service) CheckOut(ctx context.Context, memberID uuid.UUID) (*Attendance
 }
 
 // ListByMember returns a member's visit history, most recent first.
-func (s *Service) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Attendance, error) {
+// ListByMember returns one page of a member's attendance records ordered by
+// (checked_in_at DESC, id), with an opaque cursor for the next page when
+// more rows remain.
+func (s *Service) ListByMember(ctx context.Context, memberID uuid.UUID, p MemberListParams) (*MemberListResult, error) {
 	if memberID == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
-	return s.repo.ListByMember(ctx, memberID)
+	limit := paging.Limit(p.Limit)
+	cursor, err := paging.DecodeCursor(p.Cursor)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	items, err := s.repo.ListByMember(ctx, &MemberListQuery{
+		MemberID:         memberID,
+		Limit:            limit + 1,
+		AfterCheckedInAt: cursor.Key,
+		AfterID:          cursor.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := &MemberListResult{Items: items}
+	if len(items) > limit {
+		res.Items = items[:limit]
+		last := items[limit-1]
+		res.NextCursor = paging.Cursor{Key: last.CheckedInAt.UTC().Format(time.RFC3339Nano), ID: last.ID}.Encode()
+	}
+	return res, nil
 }

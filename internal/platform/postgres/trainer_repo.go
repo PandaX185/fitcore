@@ -54,11 +54,16 @@ func (r *TrainerRepository) GetByID(ctx context.Context, id uuid.UUID) (*trainer
 	return row.toTrainer(), nil
 }
 
-func (r *TrainerRepository) ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*trainers.Trainer, error) {
+// ListByBranch returns one branch's trainers ordered by (name, id),
+// applying the exclusive cursor key and capping the result at the requested
+// limit.
+func (r *TrainerRepository) ListByBranch(ctx context.Context, q *trainers.BranchListQuery) ([]*trainers.Trainer, error) {
+	db := r.db.Gorm().WithContext(ctx).Where("branch_id = ?", q.BranchID)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
+	}
 	var rows []trainerRow
-	err := r.db.Gorm().WithContext(ctx).
-		Where("branch_id = ?", branchID).
-		Order("name, id").Find(&rows).Error
+	err := db.Order("name, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

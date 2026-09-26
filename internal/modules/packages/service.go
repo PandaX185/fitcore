@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 // Service implements the membership-package business rules on the repo port.
@@ -82,9 +84,28 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Packa
 	return s.repo.GetByID(ctx, id)
 }
 
-// List returns all packages ordered by name.
-func (s *Service) List(ctx context.Context) ([]*Package, error) {
-	return s.repo.List(ctx)
+// List returns one page of packages ordered by (name, id), with an opaque
+// cursor for the next page when more rows remain.
+func (s *Service) List(ctx context.Context, p ListParams) (*ListResult, error) {
+	limit := paging.Limit(p.Limit)
+	cursor, err := paging.DecodeCursor(p.Cursor)
+	if err != nil {
+		return nil, ErrInvalid
+	}
+	items, err := s.repo.List(ctx, &ListQuery{
+		Limit:     limit + 1,
+		AfterName: cursor.Key,
+		AfterID:   cursor.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := &ListResult{Items: items}
+	if len(items) > limit {
+		res.Items = items[:limit]
+		res.NextCursor = paging.Cursor{Key: items[limit-1].Name, ID: items[limit-1].ID}.Encode()
+	}
+	return res, nil
 }
 
 // normalizeCurrency uppercases and validates a 3-letter currency code.

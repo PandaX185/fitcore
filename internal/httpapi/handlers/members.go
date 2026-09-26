@@ -22,7 +22,7 @@ type memberService interface {
 	Create(ctx context.Context, branchID uuid.UUID, name, email, phone string) (*members.Member, error)
 	Update(ctx context.Context, id uuid.UUID, patch members.Patch) (*members.Member, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	List(ctx context.Context) ([]*members.Member, error)
+	List(ctx context.Context, p members.ListParams) (*members.ListResult, error)
 }
 
 type membersHandler struct {
@@ -31,17 +31,29 @@ type membersHandler struct {
 	metrics *telemetry.Metrics
 }
 
-func (h *membersHandler) ListMembers(c *gin.Context) {
-	ms, err := h.svc.List(c.Request.Context())
+func (h *membersHandler) ListMembers(c *gin.Context, params oapi.ListMembersParams) {
+	p := members.ListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+
+	res, err := h.svc.List(c.Request.Context(), p)
 	if err != nil {
 		h.fail(c, "listMembers", err)
 		return
 	}
-	items := make([]oapi.Member, 0, len(ms))
-	for _, m := range ms {
+	items := make([]oapi.Member, 0, len(res.Items))
+	for _, m := range res.Items {
 		items = append(items, toMemberResponse(m))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.MemberPage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 func (h *membersHandler) CreateMember(c *gin.Context) {

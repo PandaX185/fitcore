@@ -12,7 +12,7 @@ import (
 type TrainerRepository interface {
 	Create(ctx context.Context, t *Trainer) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Trainer, error)
-	ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*Trainer, error)
+	ListByBranch(ctx context.Context, q *BranchListQuery) ([]*Trainer, error)
 	Update(ctx context.Context, id uuid.UUID, patch *Patch) error
 }
 

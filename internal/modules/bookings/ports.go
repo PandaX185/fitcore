@@ -14,7 +14,7 @@ type BookingRepository interface {
 	Create(ctx context.Context, b *Booking) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Booking, error)
 	Cancel(ctx context.Context, b *Booking) error
-	ListByClass(ctx context.Context, classID uuid.UUID) ([]*Booking, error)
+	ListByClass(ctx context.Context, q *ClassListQuery) ([]*Booking, error)
 	CountActiveByClass(ctx context.Context, classID uuid.UUID) (int, error)
 }
 

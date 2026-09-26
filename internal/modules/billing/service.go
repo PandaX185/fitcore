@@ -10,6 +10,7 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/memberships"
+	"github.com/PandaX185/fitcore/internal/paging"
 )
 
 // Service implements the invoice business rules on the ports.
@@ -108,11 +109,34 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Invoi
 }
 
 // ListByMember returns a member's invoices, newest first.
-func (s *Service) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Invoice, error) {
+// ListByMember returns one page of a member's invoices ordered by
+// (issued_on DESC, id), with an opaque cursor for the next page when more
+// rows remain.
+func (s *Service) ListByMember(ctx context.Context, memberID uuid.UUID, p MemberListParams) (*MemberListResult, error) {
 	if memberID == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
-	return s.repo.ListByMember(ctx, memberID)
+	limit := paging.Limit(p.Limit)
+	cursor, err := paging.DecodeCursor(p.Cursor)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	items, err := s.repo.ListByMember(ctx, &MemberListQuery{
+		MemberID:      memberID,
+		Limit:         limit + 1,
+		AfterIssuedAt: cursor.Key,
+		AfterID:       cursor.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res := &MemberListResult{Items: items}
+	if len(items) > limit {
+		res.Items = items[:limit]
+		last := items[limit-1]
+		res.NextCursor = paging.Cursor{Key: last.CreatedAt.UTC().Format(time.RFC3339Nano), ID: last.ID}.Encode()
+	}
+	return res, nil
 }
 
 // normalizeCurrency uppercases and validates a 3-letter currency code.

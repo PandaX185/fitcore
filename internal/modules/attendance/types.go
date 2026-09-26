@@ -29,3 +29,30 @@ type Attendance struct {
 	CheckedOutAt *time.Time
 	CreatedAt    time.Time
 }
+
+// MemberListQuery is the paginated, member-scoped query handed to
+// persistence.
+type MemberListQuery struct {
+	// MemberID scopes the result to one member.
+	MemberID uuid.UUID
+	// Limit is the maximum number of rows to return.
+	Limit int
+	// AfterCheckedInAt and AfterID form the exclusive cursor key into the
+	// (checked_in_at DESC, id) ordering; AfterID is zero on the first page.
+	// AfterCheckedInAt carries an RFC3339 timestamp as text.
+	AfterCheckedInAt string
+	AfterID          uuid.UUID
+}
+
+// MemberListParams is the service-facing page request.
+type MemberListParams struct {
+	Limit  int
+	Cursor string
+}
+
+// MemberListResult is a page of attendance records plus the cursor for the
+// next page, if any.
+type MemberListResult struct {
+	Items      []*Attendance
+	NextCursor string
+}

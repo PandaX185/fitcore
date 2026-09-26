@@ -22,7 +22,7 @@ type trainerService interface {
 	Get(ctx context.Context, id uuid.UUID) (*trainers.Trainer, error)
 	Create(ctx context.Context, branchID uuid.UUID, name, email, phone string) (*trainers.Trainer, error)
 	Update(ctx context.Context, id uuid.UUID, patch trainers.Patch) (*trainers.Trainer, error)
-	ListByBranch(ctx context.Context, branchID uuid.UUID) ([]*trainers.Trainer, error)
+	ListByBranch(ctx context.Context, branchID uuid.UUID, p trainers.BranchListParams) (*trainers.BranchListResult, error)
 }
 
 type trainersHandler struct {
@@ -31,17 +31,28 @@ type trainersHandler struct {
 	metrics *telemetry.Metrics
 }
 
-func (h *trainersHandler) ListBranchTrainers(c *gin.Context, branchId oapi.BranchID) {
-	ts, err := h.svc.ListByBranch(c.Request.Context(), uuid.UUID(branchId))
+func (h *trainersHandler) ListBranchTrainers(c *gin.Context, branchId oapi.BranchID, params oapi.ListBranchTrainersParams) {
+	p := trainers.BranchListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.ListByBranch(c.Request.Context(), uuid.UUID(branchId), p)
 	if err != nil {
 		h.fail(c, "listBranchTrainers", err)
 		return
 	}
-	items := make([]oapi.Trainer, 0, len(ts))
-	for _, t := range ts {
+	items := make([]oapi.Trainer, 0, len(res.Items))
+	for _, t := range res.Items {
 		items = append(items, toTrainerResponse(t))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.TrainerPage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 func (h *trainersHandler) CreateTrainer(c *gin.Context) {

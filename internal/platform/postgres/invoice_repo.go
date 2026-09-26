@@ -57,11 +57,17 @@ func (r *InvoiceRepository) GetByID(ctx context.Context, id uuid.UUID) (*billing
 	return row.toInvoice(), nil
 }
 
-func (r *InvoiceRepository) ListByMember(ctx context.Context, memberID uuid.UUID) ([]*billing.Invoice, error) {
+// ListByMember returns one member's invoices ordered by
+// (issued_on DESC, id), applying the exclusive cursor key and capping the
+// result at the requested limit.
+func (r *InvoiceRepository) ListByMember(ctx context.Context, q *billing.MemberListQuery) ([]*billing.Invoice, error) {
+	db := r.db.Gorm().WithContext(ctx).Where("member_id = ?", q.MemberID)
+	if q.AfterID != uuid.Nil {
+		db = db.Where("(issued_on < ?::timestamptz OR (issued_on = ?::timestamptz AND id > ?))",
+			q.AfterIssuedAt, q.AfterIssuedAt, q.AfterID)
+	}
 	var rows []invoiceRow
-	err := r.db.Gorm().WithContext(ctx).
-		Where("member_id = ?", memberID).
-		Order("issued_on DESC, id").Find(&rows).Error
+	err := db.Order("issued_on DESC, id").Limit(q.Limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

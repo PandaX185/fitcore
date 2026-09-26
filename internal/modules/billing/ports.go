@@ -13,7 +13,7 @@ import (
 type InvoiceRepository interface {
 	Create(ctx context.Context, inv *Invoice) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Invoice, error)
-	ListByMember(ctx context.Context, memberID uuid.UUID) ([]*Invoice, error)
+	ListByMember(ctx context.Context, q *MemberListQuery) ([]*Invoice, error)
 	Update(ctx context.Context, id uuid.UUID, patch *Patch) error
 }
 

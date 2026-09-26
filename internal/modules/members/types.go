@@ -41,3 +41,25 @@ type Patch struct {
 	Phone  *string
 	Status *Status
 }
+
+// ListQuery is the paginated query handed to persistence.
+type ListQuery struct {
+	// Limit is the maximum number of rows to return.
+	Limit int
+	// AfterName and AfterID form the exclusive cursor key into the
+	// (name, id) ordering; both zero-valued on the first page.
+	AfterName string
+	AfterID   uuid.UUID
+}
+
+// ListParams is the service-facing page request.
+type ListParams struct {
+	Limit  int
+	Cursor string
+}
+
+// ListResult is a page of members plus the cursor for the next page, if any.
+type ListResult struct {
+	Items      []*Member
+	NextCursor string
+}

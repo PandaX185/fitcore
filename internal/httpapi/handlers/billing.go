@@ -21,7 +21,7 @@ type invoiceService interface {
 	Get(ctx context.Context, id uuid.UUID) (*billing.Invoice, error)
 	Create(ctx context.Context, memberID, membershipID uuid.UUID, amountCents int64, currency string, dueAt time.Time) (*billing.Invoice, error)
 	Update(ctx context.Context, id uuid.UUID, patch billing.Patch) (*billing.Invoice, error)
-	ListByMember(ctx context.Context, memberID uuid.UUID) ([]*billing.Invoice, error)
+	ListByMember(ctx context.Context, memberID uuid.UUID, p billing.MemberListParams) (*billing.MemberListResult, error)
 }
 
 type billingHandler struct {
@@ -71,17 +71,28 @@ func (h *billingHandler) UpdateInvoice(c *gin.Context, invoiceId oapi.InvoiceID)
 	httpx.JSON(c, http.StatusOK, toInvoiceResponse(inv))
 }
 
-func (h *billingHandler) ListMemberInvoices(c *gin.Context, memberId oapi.MemberID) {
-	invs, err := h.svc.ListByMember(c.Request.Context(), uuid.UUID(memberId))
+func (h *billingHandler) ListMemberInvoices(c *gin.Context, memberId oapi.MemberID, params oapi.ListMemberInvoicesParams) {
+	p := billing.MemberListParams{}
+	if params.Limit != nil {
+		p.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		p.Cursor = *params.Cursor
+	}
+	res, err := h.svc.ListByMember(c.Request.Context(), uuid.UUID(memberId), p)
 	if err != nil {
 		h.fail(c, "listMemberInvoices", err)
 		return
 	}
-	items := make([]oapi.Invoice, 0, len(invs))
-	for _, inv := range invs {
+	items := make([]oapi.Invoice, 0, len(res.Items))
+	for _, inv := range res.Items {
 		items = append(items, toInvoiceResponse(inv))
 	}
-	httpx.JSON(c, http.StatusOK, items)
+	page := oapi.InvoicePage{Items: items}
+	if res.NextCursor != "" {
+		page.NextCursor = &res.NextCursor
+	}
+	httpx.JSON(c, http.StatusOK, page)
 }
 
 // fail maps billing sentinel errors to HTTP statuses.

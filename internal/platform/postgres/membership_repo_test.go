@@ -151,11 +151,124 @@ func TestMembershipRepositoryListByMember(t *testing.T) {
 	createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusFrozen)
 	createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusExpired)
 
-	got, err := repo.ListByMember(ctx, memberID)
+	got, err := repo.ListByMember(ctx, &memberships.MemberListQuery{MemberID: memberID, Limit: 100})
 	if err != nil {
 		t.Fatalf("ListByMember: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("ListByMember returned %d, want 2", len(got))
+	}
+}
+
+func TestMembershipRepositoryListByMemberPaginates(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewMembershipRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Microsecond)
+	starts := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour), base.Add(3 * time.Hour)}
+	ids := make([]uuid.UUID, 0, len(starts))
+	for _, st := range starts {
+		id := uuid.New()
+		ids = append(ids, id)
+		if err := repo.Create(ctx, &memberships.Membership{
+			ID: id, MemberID: memberID, PackageID: packageID, BranchID: branchID,
+			Status: memberships.StatusFrozen, StartsAt: st,
+			ExpiresAt: st.AddDate(0, 0, 30), CreatedAt: st, UpdatedAt: st,
+		}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		cleanupTable(t, db, "memberships", id)
+	}
+
+	var collected []uuid.UUID
+	var afterKey string
+	var afterID uuid.UUID
+	for {
+		res, err := repo.ListByMember(ctx, &memberships.MemberListQuery{
+			MemberID: memberID, Limit: 2, AfterStartsAt: afterKey, AfterID: afterID,
+		})
+		if err != nil {
+			t.Fatalf("ListByMember: %v", err)
+		}
+		if len(res) == 0 {
+			break
+		}
+		for _, m := range res {
+			collected = append(collected, m.ID)
+		}
+		if len(res) < 2 {
+			break
+		}
+		afterKey = res[len(res)-1].StartsAt.UTC().Format(time.RFC3339Nano)
+		afterID = res[len(res)-1].ID
+	}
+
+	// The four inserted rows must appear in descending starts_on order.
+	pos := map[uuid.UUID]int{}
+	for i, id := range collected {
+		pos[id] = i
+	}
+	prev := -1
+	for i := len(ids) - 1; i >= 0; i-- {
+		p, ok := pos[ids[i]]
+		if !ok {
+			t.Fatalf("missing membership %v after paging: %v", ids[i], collected)
+		}
+		if p <= prev {
+			t.Fatalf("memberships out of order after paging: %v", collected)
+		}
+		prev = p
+	}
+}
+
+func TestMembershipRepositoryListByMemberPaginatesTies(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewMembershipRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+
+	// Two rows sharing the same starts_on must still split across the page
+	// boundary: the (starts_on = X AND id > Y) arm of the keyset.
+	at := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Microsecond)
+	first := uuid.New()
+	second := uuid.New()
+	if first.String() > second.String() {
+		first, second = second, first
+	}
+	for _, id := range []uuid.UUID{first, second} {
+		if err := repo.Create(ctx, &memberships.Membership{
+			ID: id, MemberID: memberID, PackageID: packageID, BranchID: branchID,
+			Status: memberships.StatusFrozen, StartsAt: at,
+			ExpiresAt: at.AddDate(0, 0, 30), CreatedAt: at, UpdatedAt: at,
+		}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		cleanupTable(t, db, "memberships", id)
+	}
+
+	page1, err := repo.ListByMember(ctx, &memberships.MemberListQuery{MemberID: memberID, Limit: 1})
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(page1) != 1 || page1[0].ID != first {
+		t.Fatalf("page 1 = %+v, want [%v]", page1, first)
+	}
+	page2, err := repo.ListByMember(ctx, &memberships.MemberListQuery{
+		MemberID: memberID, Limit: 1,
+		AfterStartsAt: page1[0].StartsAt.UTC().Format(time.RFC3339Nano), AfterID: page1[0].ID,
+	})
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(page2) != 1 || page2[0].ID != second {
+		t.Fatalf("page 2 = %+v, want [%v]", page2, second)
 	}
 }
