@@ -115,7 +115,7 @@ func (h *trainersHandler) fail(c *gin.Context, op string, err error) {
 		status = http.StatusBadRequest
 		msg = "invalid trainer"
 	case errors.Is(err, trainers.ErrDuplicateEmail):
-		status = http.StatusBadRequest
+		status = http.StatusConflict
 		msg = "email already in use"
 	}
 	httpx.Error(c, h.log, h.metrics, "trainers", op, status, msg, err)

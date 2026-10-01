@@ -105,9 +105,12 @@ func (h *membershipsHandler) fail(c *gin.Context, op string, err error) {
 	case errors.Is(err, memberships.ErrNotFound), errors.Is(err, memberships.ErrMemberNotFound), errors.Is(err, memberships.ErrPackageNotFound):
 		status = http.StatusNotFound
 		msg = "membership not found"
-	case errors.Is(err, memberships.ErrInvalidInput), errors.Is(err, memberships.ErrDuplicateActive):
+	case errors.Is(err, memberships.ErrInvalidInput):
 		status = http.StatusBadRequest
 		msg = "invalid membership"
+	case errors.Is(err, memberships.ErrDuplicateActive):
+		status = http.StatusConflict
+		msg = "membership conflict"
 	}
 	httpx.Error(c, h.log, h.metrics, "memberships", op, status, msg, err)
 }

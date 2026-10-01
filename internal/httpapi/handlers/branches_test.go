@@ -37,7 +37,8 @@ func (f fakeBranchService) List(ctx context.Context, p branches.ListParams) (*br
 }
 
 type apiError struct {
-	Message string `json:"message"`
+	Error string `json:"error"`
+	Code  string `json:"code"`
 }
 
 func newTestRouter(svc branchService) *gin.Engine {
@@ -79,14 +80,12 @@ func TestGetBranchNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body %s", rec.Code, rec.Body.String())
 	}
-	var body struct {
-		Error apiError `json:"error"`
-	}
+	var body apiError
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.Error.Message != "branch not found" {
-		t.Fatalf("message = %q, want %q", body.Error.Message, "branch not found")
+	if body.Error != "branch not found" {
+		t.Fatalf("message = %q, want %q", body.Error, "branch not found")
 	}
 }
 
@@ -97,8 +96,8 @@ func TestGetBranchInvalidID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/branches/00000000-0000-0000-0000-000000000000", nil))
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422; body %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -125,14 +124,12 @@ func TestGetBranchInternalError(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body %s", rec.Code, rec.Body.String())
 	}
-	var body struct {
-		Error apiError `json:"error"`
-	}
+	var body apiError
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.Error.Message != "internal error" {
-		t.Fatalf("message = %q, want %q", body.Error.Message, "internal error")
+	if body.Error != "internal error" {
+		t.Fatalf("message = %q, want %q", body.Error, "internal error")
 	}
 }
 
@@ -200,8 +197,8 @@ func TestListBranchesInvalid(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/branches?cursor=bad", nil))
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422; body %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -250,8 +247,8 @@ func TestCreateBranchInvalid(t *testing.T) {
 	body := `{"name":"","address":"","latitude":0,"longitude":0}`
 	newTestRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/branches", strings.NewReader(body)))
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422; body %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
 	}
 }
 

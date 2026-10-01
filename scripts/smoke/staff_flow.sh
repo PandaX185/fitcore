@@ -47,7 +47,7 @@ print(json.dumps({"branchId": sys.argv[1], "name": "Desk Agent",
     req GET "/branches/$BR_ID/staff" 200 -n 'list staff by branch' "" -H "Authorization: Bearer $ACCESS_TOKEN"
 
     # 4. A second account with the same email is refused.
-    req POST /staff 400 -n 'duplicate staff email rejected' "$(python3 -c 'import json,sys
+    req POST /staff 409 -n 'duplicate staff email rejected' "$(python3 -c 'import json,sys
 print(json.dumps({"branchId": sys.argv[1], "name": "Duplicate",
                     "email": sys.argv[2]}))' "$BR_ID" "$STF_EMAIL")" \
         -H "Authorization: Bearer $ACCESS_TOKEN"

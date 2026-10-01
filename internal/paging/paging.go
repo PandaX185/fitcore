@@ -54,7 +54,8 @@ func (c Cursor) Encode() string {
 }
 
 // DecodeCursor parses an opaque cursor, rejecting malformed input and cursors
-// without an id. An empty string decodes to a zero cursor for the first page.
+// without both a key and an id. An empty string decodes to a zero cursor for
+// the first page.
 func DecodeCursor(s string) (Cursor, error) {
 	if s == "" {
 		return Cursor{}, nil
@@ -69,6 +70,9 @@ func DecodeCursor(s string) (Cursor, error) {
 	}
 	if c.ID == uuid.Nil {
 		return Cursor{}, errors.New("cursor missing id")
+	}
+	if c.Key == "" {
+		return Cursor{}, errors.New("cursor missing key")
 	}
 	return c, nil
 }

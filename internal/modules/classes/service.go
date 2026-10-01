@@ -125,10 +125,18 @@ func (s *Service) List(ctx context.Context, p ListParams) (*ListResult, error) {
 	if p.BranchID != nil && *p.BranchID == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
+	if p.TrainerID != nil && *p.TrainerID == uuid.Nil {
+		return nil, ErrInvalidInput
+	}
 	limit := paging.Limit(p.Limit)
 	cursor, err := paging.DecodeCursor(p.Cursor)
 	if err != nil {
 		return nil, ErrInvalidInput
+	}
+	if cursor.Key != "" {
+		if _, err := time.Parse(time.RFC3339Nano, cursor.Key); err != nil {
+			return nil, ErrInvalidInput
+		}
 	}
 	items, err := s.repo.List(ctx, &ListQuery{
 		BranchID:      p.BranchID,

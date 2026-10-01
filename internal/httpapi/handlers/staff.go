@@ -118,7 +118,7 @@ func (h *staffHandler) fail(c *gin.Context, op string, err error) {
 		status = http.StatusBadRequest
 		msg = "invalid staff"
 	case errors.Is(err, staff.ErrDuplicateEmail):
-		status = http.StatusBadRequest
+		status = http.StatusConflict
 		msg = "email already in use"
 	}
 	httpx.Error(c, h.log, h.metrics, "staff", op, status, msg, err)

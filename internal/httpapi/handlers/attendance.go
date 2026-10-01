@@ -97,12 +97,18 @@ func (h *attendanceHandler) fail(c *gin.Context, op string, err error) {
 	switch {
 	case err == nil:
 		return
-	case errors.Is(err, attendance.ErrNotFound), errors.Is(err, attendance.ErrMemberNotFound), errors.Is(err, attendance.ErrNoActiveMembership), errors.Is(err, attendance.ErrNoOpenRecord):
+	case errors.Is(err, attendance.ErrNotFound), errors.Is(err, attendance.ErrNoOpenRecord):
 		status = http.StatusNotFound
 		msg = "attendance record not found"
+	case errors.Is(err, attendance.ErrMemberNotFound):
+		status = http.StatusNotFound
+		msg = "member not found"
 	case errors.Is(err, attendance.ErrInvalidInput):
 		status = http.StatusBadRequest
 		msg = "invalid attendance"
+	case errors.Is(err, attendance.ErrNoActiveMembership):
+		status = http.StatusConflict
+		msg = "no active membership"
 	case errors.Is(err, attendance.ErrAlreadyCheckedIn), errors.Is(err, attendance.ErrAlreadyCheckedOut):
 		status = http.StatusConflict
 		msg = "attendance conflict"

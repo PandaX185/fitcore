@@ -110,6 +110,8 @@ Routes are permission-gated: each requires a bearer token with the matching
 
 Every list endpoint paginates with the same contract: `?limit` (default 20,
 maximum 100) and `?cursor` (the opaque `nextCursor` from the previous page).
+Out-of-range limits clamp silently (0 or below becomes 20, above 100 becomes
+100).
 Responses are `{items: [...], nextCursor?}`; `nextCursor` is omitted on the
 last page. Rows are keyset-ordered per resource — by name for members,
 packages, staff, trainers and branches, by start time for classes, by booking

@@ -107,6 +107,11 @@ func (s *Service) ListByMember(ctx context.Context, memberID uuid.UUID, p Member
 	if err != nil {
 		return nil, ErrInvalidInput
 	}
+	if cursor.Key != "" {
+		if _, err := time.Parse(time.RFC3339Nano, cursor.Key); err != nil {
+			return nil, ErrInvalidInput
+		}
+	}
 	items, err := s.repo.ListByMember(ctx, &MemberListQuery{
 		MemberID:         memberID,
 		Limit:            limit + 1,

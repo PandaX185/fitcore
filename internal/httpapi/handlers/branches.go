@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -103,12 +104,16 @@ func (h *branchesHandler) UpdateBranch(c *gin.Context, branchId oapi.BranchID) {
 
 // fail maps branches sentinel errors to HTTP statuses and responds consistently.
 func (h *branchesHandler) fail(c *gin.Context, op string, err error) {
-	status := httpx.StatusFor(err, branches.ErrNotFound, branches.ErrInvalid, nil)
+	status := http.StatusInternalServerError
 	msg := "internal error"
-	switch status {
-	case http.StatusNotFound:
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, branches.ErrNotFound):
+		status = http.StatusNotFound
 		msg = "branch not found"
-	case http.StatusUnprocessableEntity:
+	case errors.Is(err, branches.ErrInvalid):
+		status = http.StatusBadRequest
 		msg = "invalid branch"
 	}
 	httpx.Error(c, h.log, h.metrics, "branches", op, status, msg, err)

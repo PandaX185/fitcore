@@ -46,7 +46,7 @@ print(json.dumps({"branchId": sys.argv[1], "name": "Coach Ada",
     req GET "/branches/$BR_ID/trainers" 200 -n 'list trainers by branch' "" -H "Authorization: Bearer $ACCESS_TOKEN"
 
     # 4. A second trainer with the same email is refused.
-    req POST /trainers 400 -n 'duplicate trainer email rejected' "$(python3 -c 'import json,sys
+    req POST /trainers 409 -n 'duplicate trainer email rejected' "$(python3 -c 'import json,sys
 print(json.dumps({"branchId": sys.argv[1], "name": "Duplicate",
                     "email": sys.argv[2]}))' "$BR_ID" "$TR_EMAIL")" \
         -H "Authorization: Bearer $ACCESS_TOKEN"

@@ -86,7 +86,10 @@ params (a malformed UUID is a 400 before your method runs).
   interface) only when a second consumer appears. `httpapi.Deps` / the adapter
   must import domain types, never the other way around.
 - Map sentinels with `httpx.StatusFor(err, ErrNotFound, ErrInvalid, ErrConflict)`
-  → 404 / 422 / 409; respond with generated response types via `httpx.JSON`.
+  → 404 / 400 / 409: 400 for invalid input (bad UUID, bad cursor, failed
+  validation), 404 for a missing row, 409 for a state conflict (duplicate,
+  double-booking, already-checked-in). Respond with generated response types
+  via `httpx.JSON`. Error bodies are `{"error": <message>, "code": <code>}`.
 - Unexpected errors go through `httpx.Error(c, logger, metrics, module, op,
   status, clientSafeMessage, err)` — it logs the cause, records the metric, and
   never leaks the cause to the client.

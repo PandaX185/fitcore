@@ -108,8 +108,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BranchPage"
-        "422":
-          $ref: "#/components/responses/ValidationError"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
@@ -132,8 +132,6 @@ paths:
                 $ref: "#/components/schemas/Branch"
         "400":
           $ref: "#/components/responses/BadRequest"
-        "422":
-          $ref: "#/components/responses/ValidationError"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -176,8 +174,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
-        "422":
-          $ref: "#/components/responses/ValidationError"
 
   /auth/login:
     post:
@@ -432,6 +428,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -514,6 +512,8 @@ paths:
                 $ref: "#/components/schemas/Package"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -793,6 +793,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Attendance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -925,6 +927,8 @@ paths:
                 $ref: "#/components/schemas/Staff"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1010,6 +1014,8 @@ paths:
                 $ref: "#/components/schemas/Trainer"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1152,7 +1158,10 @@ components:
       name: limit
       in: query
       required: false
-      description: Maximum number of items to return (default 20, maximum 100)
+      description: >-
+        Maximum number of items to return (default 20, maximum 100).
+        Out-of-range values clamp silently: 0 or below becomes 20, above 100
+        becomes 100.
       schema:
         type: integer
         default: 20

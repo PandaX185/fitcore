@@ -87,16 +87,18 @@ migrate-create name:
 
 # Start the full dev stack
 compose-up:
-    docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
+    docker compose -f deploy/docker-compose.yml --env-file .env up -d
 
 # Stop the dev stack
 compose-down:
     docker compose -f deploy/docker-compose.yml --env-file .env down
 
-# Seed the staff accounts used by the smoke flows (and reports)
+# Seed the staff accounts used by the smoke flows (and reports).
+# set-password reads the password from stdin (never as a flag); printf avoids
+# leaking it with a trailing newline or shell history entry.
 seed-smoke email='admin@fitcore.local' password='Password1!':
-    @go run ./cmd/set-password -email {{ email }} -password {{ password }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,memberships:create,memberships:update,packages:read,packages:create,packages:update,classes:read,classes:create,classes:update,classes:delete,bookings:read,bookings:create,bookings:update,attendance:read,attendance:create,attendance:update,billing:read,billing:create,billing:update,staff:read,staff:create,staff:update,trainers:read,trainers:create,trainers:update'
-    @go run ./cmd/set-password -email viewer@fitcore.local -password {{ password }} -perms 'branches:read'
+    @printf '%s' '{{ password }}' | go run ./cmd/set-password -email {{ email }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,memberships:create,memberships:update,packages:read,packages:create,packages:update,classes:read,classes:create,classes:update,classes:delete,bookings:read,bookings:create,bookings:update,attendance:read,attendance:create,attendance:update,billing:read,billing:create,billing:update,staff:read,staff:create,staff:update,trainers:read,trainers:create,trainers:update'
+    @printf '%s' '{{ password }}' | go run ./cmd/set-password -email viewer@fitcore.local -perms 'branches:read'
 
 # Run manual smoke flows against the live stack (scripts/smoke/): requires
 # compose-up + migrations applied; seeds the auth-flow staff account on demand.

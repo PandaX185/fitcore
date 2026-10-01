@@ -113,7 +113,7 @@ func (h *packagesHandler) fail(c *gin.Context, op string, err error) {
 		status = http.StatusBadRequest
 		msg = "invalid package"
 	case errors.Is(err, packages.ErrDuplicateName):
-		status = http.StatusBadRequest
+		status = http.StatusConflict
 		msg = "package name already in use"
 	}
 	httpx.Error(c, h.log, h.metrics, "packages", op, status, msg, err)

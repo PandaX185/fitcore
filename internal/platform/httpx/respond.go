@@ -16,6 +16,8 @@ func JSON(c *gin.Context, status int, body any) {
 
 // Error sends a JSON error response, records a metric, and logs the cause. The
 // message is client-safe; the cause is logged but never returned verbatim.
+// The body matches the api/openapi.yaml Error schema:
+// {"error": <message>, "code": <code>}.
 func Error(c *gin.Context, log *slog.Logger, metrics *telemetry.Metrics, module, operation string, status int, message string, cause error) {
 	if metrics != nil {
 		metrics.RecordApplicationError(module, operation, status)
@@ -29,7 +31,37 @@ func Error(c *gin.Context, log *slog.Logger, metrics *telemetry.Metrics, module,
 			"error", errString(cause),
 		)
 	}
-	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"message": message}})
+	c.AbortWithStatusJSON(status, gin.H{"error": message, "code": codeForStatus(status)})
+}
+
+// CodegenErrorHandler adapts the error envelope to the oapi-codegen
+// GinServerOptions.ErrorHandler signature so malformed path/query parameters
+// rejected by the generated router use the same {"error", "code"} body.
+func CodegenErrorHandler(c *gin.Context, err error, status int) {
+	message := "invalid request"
+	if err != nil {
+		message = err.Error()
+	}
+	c.AbortWithStatusJSON(status, gin.H{"error": message, "code": codeForStatus(status)})
+}
+
+// codeForStatus maps an HTTP status to the stable machine-readable code
+// carried by the Error schema.
+func codeForStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "bad_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusConflict:
+		return "conflict"
+	default:
+		return "internal_error"
+	}
 }
 
 func errString(err error) string {
@@ -44,7 +76,7 @@ func StatusFor(err error, notFound, invalid, conflict error) int {
 	case err != nil && errors.Is(err, notFound):
 		return http.StatusNotFound
 	case err != nil && errors.Is(err, invalid):
-		return http.StatusUnprocessableEntity
+		return http.StatusBadRequest
 	case err != nil && errors.Is(err, conflict):
 		return http.StatusConflict
 	default:

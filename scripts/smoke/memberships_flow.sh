@@ -52,10 +52,10 @@ print(json.dumps({"memberId": sys.argv[1], "packageId": sys.argv[2],
     MS_ID=$(printf '%s' "$SMOKE_BODY" | json_get id)
 
     # 3. Get by ID and list by member; a second purchase while the first is
-    #    still active is a conflict (400 here).
+    #    still active is a conflict (409 here).
     req GET "/memberships/$MS_ID" 200 -n 'fetch membership by id' "" -H "Authorization: Bearer $ACCESS_TOKEN"
     req GET "/members/$MB_ID/memberships" 200 -n 'list memberships by member' "" -H "Authorization: Bearer $ACCESS_TOKEN"
-    req POST /memberships 400 -n 'duplicate active membership rejected' "$(python3 -c 'import json,sys
+    req POST /memberships 409 -n 'duplicate active membership rejected' "$(python3 -c 'import json,sys
 print(json.dumps({"memberId": sys.argv[1], "packageId": sys.argv[2],
                     "branchId": sys.argv[3]}))' "$MB_ID" "$PK_ID" "$BR_ID")" \
         -H "Authorization: Bearer $ACCESS_TOKEN"

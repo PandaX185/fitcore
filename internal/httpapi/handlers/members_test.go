@@ -322,13 +322,11 @@ func assertErrorStatus(t *testing.T, rec *httptest.ResponseRecorder, want int, m
 	if rec.Code != want {
 		t.Fatalf("status = %d, want %d; body %s", rec.Code, want, rec.Body.String())
 	}
-	var body struct {
-		Error apiError `json:"error"`
-	}
+	var body apiError
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.Error.Message != msg {
-		t.Fatalf("message = %q, want %q", body.Error.Message, msg)
+	if body.Error != msg {
+		t.Fatalf("message = %q, want %q", body.Error, msg)
 	}
 }

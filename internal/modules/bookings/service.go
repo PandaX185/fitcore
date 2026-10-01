@@ -79,6 +79,9 @@ func (s *Service) Create(ctx context.Context, classID, memberID uuid.UUID) (*Boo
 // Cancel moves a booked seat to cancelled, stamping cancelled_at. Cancelling
 // an already-cancelled booking is a no-op.
 func (s *Service) Cancel(ctx context.Context, id uuid.UUID) (*Booking, error) {
+	if id == uuid.Nil {
+		return nil, ErrInvalidInput
+	}
 	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -106,6 +109,11 @@ func (s *Service) ListByClass(ctx context.Context, classID uuid.UUID, p ClassLis
 	cursor, err := paging.DecodeCursor(p.Cursor)
 	if err != nil {
 		return nil, ErrInvalidInput
+	}
+	if cursor.Key != "" {
+		if _, err := time.Parse(time.RFC3339Nano, cursor.Key); err != nil {
+			return nil, ErrInvalidInput
+		}
 	}
 	items, err := s.repo.ListByClass(ctx, &ClassListQuery{
 		ClassID:       classID,

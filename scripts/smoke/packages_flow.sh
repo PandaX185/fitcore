@@ -31,9 +31,13 @@ print(json.dumps({"name": sys.argv[1], "durationDays": 30,
                     "priceCents": 25000, "currency": "bhd"}))' "$PK_NAME")" \
     -H "Authorization: Bearer $ACCESS_TOKEN"
 PK_ID=$(printf '%s' "$SMOKE_BODY" | json_get id)
-req POST /packages 400 -n 'duplicate package name and bad currency rejected' "$(python3 -c 'import json,sys
+req POST /packages 400 -n 'bad package currency rejected' "$(python3 -c 'import json,sys
 print(json.dumps({"name": sys.argv[1], "durationDays": 30,
                     "priceCents": 1, "currency": "XX"}))' "$PK_NAME")" \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+req POST /packages 409 -n 'duplicate package name rejected' "$(python3 -c 'import json,sys
+print(json.dumps({"name": sys.argv[1], "durationDays": 30,
+                    "priceCents": 1, "currency": "USD"}))' "$PK_NAME")" \
     -H "Authorization: Bearer $ACCESS_TOKEN"
 
 # 3. Fetch by ID; malformed and nil UUIDs are 400, a missing row is 404.

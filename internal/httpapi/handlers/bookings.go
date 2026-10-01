@@ -122,5 +122,6 @@ func toBookingResponse(b *bookings.Booking) oapi.Booking {
 		Status:      oapi.BookingStatus(b.Status),
 		BookedAt:    b.BookedAt,
 		CancelledAt: cancelledAt,
+		CreatedAt:   b.CreatedAt,
 	}
 }

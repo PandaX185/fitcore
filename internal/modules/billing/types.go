@@ -13,6 +13,7 @@ var (
 	ErrInvalidInput       = errors.New("invalid invoice input")
 	ErrMemberNotFound     = errors.New("member not found")
 	ErrMembershipNotFound = errors.New("membership not found")
+	ErrDuplicate          = errors.New("duplicate invoice")
 )
 
 // InvoiceStatus describes the lifecycle of an invoice.

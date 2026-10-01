@@ -111,6 +111,9 @@ func (h *billingHandler) fail(c *gin.Context, op string, err error) {
 	case errors.Is(err, billing.ErrInvalidInput):
 		status = http.StatusBadRequest
 		msg = "invalid invoice"
+	case errors.Is(err, billing.ErrDuplicate):
+		status = http.StatusConflict
+		msg = "duplicate invoice"
 	}
 	httpx.Error(c, h.log, h.metrics, "billing", op, status, msg, err)
 }

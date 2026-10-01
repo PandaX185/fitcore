@@ -619,15 +619,12 @@ type NotFound = Error
 // Unauthorized Example: {"code":"member_not_found","error":"member not found"}
 type Unauthorized = Error
 
-// ValidationError Example: {"code":"member_not_found","error":"member not found"}
-type ValidationError = Error
-
 // ListBranchesParams defines parameters for ListBranches.
 type ListBranchesParams struct {
 	// Q Free-text search matching branch name or address as a case-insensitive substring
 	Q *BranchQuery `form:"q,omitempty" json:"q,omitempty"`
 
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -636,7 +633,7 @@ type ListBranchesParams struct {
 
 // ListBranchStaffParams defines parameters for ListBranchStaff.
 type ListBranchStaffParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -645,7 +642,7 @@ type ListBranchStaffParams struct {
 
 // ListBranchTrainersParams defines parameters for ListBranchTrainers.
 type ListBranchTrainersParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -660,7 +657,7 @@ type ListClassesParams struct {
 	// TrainerId Filter by trainer
 	TrainerId *TrainerIDQuery `form:"trainerId,omitempty" json:"trainerId,omitempty"`
 
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -669,7 +666,7 @@ type ListClassesParams struct {
 
 // ListClassBookingsParams defines parameters for ListClassBookings.
 type ListClassBookingsParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -678,7 +675,7 @@ type ListClassBookingsParams struct {
 
 // ListMembersParams defines parameters for ListMembers.
 type ListMembersParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -687,7 +684,7 @@ type ListMembersParams struct {
 
 // ListMemberAttendanceParams defines parameters for ListMemberAttendance.
 type ListMemberAttendanceParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -696,7 +693,7 @@ type ListMemberAttendanceParams struct {
 
 // ListMemberInvoicesParams defines parameters for ListMemberInvoices.
 type ListMemberInvoicesParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -705,7 +702,7 @@ type ListMemberInvoicesParams struct {
 
 // ListMemberMembershipsParams defines parameters for ListMemberMemberships.
 type ListMemberMembershipsParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
@@ -714,7 +711,7 @@ type ListMemberMembershipsParams struct {
 
 // ListPackagesParams defines parameters for ListPackages.
 type ListPackagesParams struct {
-	// Limit Maximum number of items to return (default 20, maximum 100)
+	// Limit Maximum number of items to return (default 20, maximum 100). Out-of-range values clamp silently: 0 or below becomes 20, above 100 becomes 100.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Cursor Opaque cursor from a previous page response for the next page
