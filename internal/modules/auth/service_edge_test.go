@@ -68,10 +68,17 @@ func TestServiceRefreshPropagatesBackendErrors(t *testing.T) {
 
 	t.Run("rotate backend failure", func(t *testing.T) {
 		svc := NewService(
-			fakeStaffRepo{},
-			&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-				return uuid.Nil, uuid.Nil, errSentinel
+			fakeStaffRepo{byID: func(ctx context.Context, id uuid.UUID) (*StaffCredentials, error) {
+				return &StaffCredentials{ID: id, Active: true}, nil
 			}},
+			&fakeRefreshRepo{
+				find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+					return &RefreshTokenRecord{StaffID: uuid.New(), JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+				},
+				rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+					return RotateUnknown, uuid.Nil, uuid.Nil, errSentinel
+				},
+			},
 			newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
 		)
 		_, err := svc.Refresh(context.Background(), "t")
@@ -85,9 +92,14 @@ func TestServiceRefreshPropagatesBackendErrors(t *testing.T) {
 			fakeStaffRepo{byID: func(ctx context.Context, id uuid.UUID) (*StaffCredentials, error) {
 				return nil, errSentinel
 			}},
-			&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-				return uuid.New(), uuid.New(), nil
-			}},
+			&fakeRefreshRepo{
+				find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+					return &RefreshTokenRecord{StaffID: uuid.New(), JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+				},
+				rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+					return RotateRotated, uuid.New(), uuid.New(), nil
+				},
+			},
 			newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
 		)
 		if _, err := svc.Refresh(context.Background(), "t"); !errors.Is(err, errSentinel) {
@@ -95,20 +107,32 @@ func TestServiceRefreshPropagatesBackendErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("revocation backend failure", func(t *testing.T) {
+	t.Run("revocation backend failure does not strand the client", func(t *testing.T) {
 		rev := newFakeRevocations()
 		rev.revokeErr = errSentinel
+		id := uuid.New()
 		svc := NewService(
-			fakeStaffRepo{byID: func(ctx context.Context, id uuid.UUID) (*StaffCredentials, error) {
+			fakeStaffRepo{byID: func(ctx context.Context, got uuid.UUID) (*StaffCredentials, error) {
 				return &StaffCredentials{ID: id, Active: true}, nil
 			}},
-			&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-				return uuid.New(), uuid.New(), nil
-			}},
+			&fakeRefreshRepo{
+				find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+					return &RefreshTokenRecord{StaffID: id, JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+				},
+				rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+					return RotateRotated, id, uuid.New(), nil
+				},
+			},
 			rev, issuer, 15*time.Minute, 24*time.Hour,
 		)
-		if _, err := svc.Refresh(context.Background(), "t"); !errors.Is(err, errSentinel) {
-			t.Fatalf("err = %v, want backend error propagated", err)
+		// The rotation already committed, so the fresh pair is returned
+		// anyway; the revocation error is only logged.
+		res, err := svc.Refresh(context.Background(), "t")
+		if err != nil {
+			t.Fatalf("Refresh with failing revocations = %v, want the rotated pair", err)
+		}
+		if res == nil || res.AccessToken == "" || res.RefreshToken == "" {
+			t.Fatalf("Refresh returned no pair: %+v", res)
 		}
 	})
 }
@@ -168,9 +192,14 @@ func TestServiceRefreshMasksStaffNotFound(t *testing.T) {
 		fakeStaffRepo{byID: func(ctx context.Context, id uuid.UUID) (*StaffCredentials, error) {
 			return nil, ErrStaffNotFound
 		}},
-		&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-			return uuid.New(), uuid.New(), nil
-		}},
+		&fakeRefreshRepo{
+			find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+				return &RefreshTokenRecord{StaffID: uuid.New(), JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+			},
+			rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+				return RotateRotated, uuid.New(), uuid.New(), nil
+			},
+		},
 		newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
 	)
 	if _, err := svc.Refresh(context.Background(), "t"); !errors.Is(err, ErrInvalidToken) {

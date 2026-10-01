@@ -28,9 +28,11 @@ func (f fakeStaffRepo) ByID(ctx context.Context, id uuid.UUID) (*StaffCredential
 }
 
 type fakeRefreshRepo struct {
-	create     func(ctx context.Context, staffID uuid.UUID, tokenHash string, jti uuid.UUID, expiresAt time.Time) error
-	rotate     func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error)
-	revokeByJK func(ctx context.Context, jti uuid.UUID) error
+	create       func(ctx context.Context, staffID uuid.UUID, tokenHash string, jti uuid.UUID, expiresAt time.Time) error
+	find         func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error)
+	rotate       func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error)
+	revokeByJK   func(ctx context.Context, jti uuid.UUID) error
+	revokeFamily func(ctx context.Context, staffID uuid.UUID) error
 }
 
 func (f *fakeRefreshRepo) CreateToken(ctx context.Context, staffID uuid.UUID, tokenHash string, jti uuid.UUID, expiresAt time.Time) error {
@@ -39,9 +41,15 @@ func (f *fakeRefreshRepo) CreateToken(ctx context.Context, staffID uuid.UUID, to
 	}
 	return f.create(ctx, staffID, tokenHash, jti, expiresAt)
 }
-func (f *fakeRefreshRepo) RotateToken(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
+func (f *fakeRefreshRepo) FindByHash(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+	if f.find == nil {
+		return nil, ErrInvalidToken
+	}
+	return f.find(ctx, tokenHash)
+}
+func (f *fakeRefreshRepo) RotateToken(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
 	if f.rotate == nil {
-		return uuid.New(), uuid.New(), nil
+		return RotateRotated, uuid.New(), uuid.New(), nil
 	}
 	return f.rotate(ctx, tokenHash, newTokenHash, newJTI, expiresAt)
 }
@@ -50,6 +58,12 @@ func (f *fakeRefreshRepo) RevokeByJTI(ctx context.Context, jti uuid.UUID) error 
 		return nil
 	}
 	return f.revokeByJK(ctx, jti)
+}
+func (f *fakeRefreshRepo) RevokeFamilyByStaff(ctx context.Context, staffID uuid.UUID) error {
+	if f.revokeFamily == nil {
+		return nil
+	}
+	return f.revokeFamily(ctx, staffID)
 }
 
 type fakeRevocations struct {
@@ -181,9 +195,14 @@ func TestServiceRefreshRotates(t *testing.T) {
 				return &StaffCredentials{ID: id, PasswordHash: phc(t), Permissions: []Permission{PermStaffRead}, Active: true}, nil
 			},
 		},
-		&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-			return id, oldJTI, nil
-		}},
+		&fakeRefreshRepo{
+			find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+				return &RefreshTokenRecord{StaffID: id, JTI: oldJTI, ExpiresAt: time.Now().Add(time.Hour)}, nil
+			},
+			rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+				return RotateRotated, id, oldJTI, nil
+			},
+		},
 		rev,
 		testIssuer(t),
 		15*time.Minute, 24*time.Hour,
@@ -208,16 +227,85 @@ func TestServiceRefreshRotates(t *testing.T) {
 func TestServiceRefreshRejects(t *testing.T) {
 	issuer := testIssuer(t)
 
-	t.Run("rotated token rejected", func(t *testing.T) {
+	t.Run("unknown token is theft", func(t *testing.T) {
+		familiesKilled := 0
 		svc := NewService(
 			fakeStaffRepo{},
-			&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-				return uuid.Nil, uuid.Nil, ErrInvalidToken
-			}},
+			&fakeRefreshRepo{
+				find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+					return nil, ErrInvalidToken
+				},
+				revokeFamily: func(ctx context.Context, staffID uuid.UUID) error {
+					familiesKilled++
+					return nil
+				},
+			},
 			newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
 		)
-		if _, err := svc.Refresh(context.Background(), "old"); !errors.Is(err, ErrInvalidToken) {
+		if _, err := svc.Refresh(context.Background(), "never-existed"); !errors.Is(err, ErrTokenReuse) {
+			t.Fatalf("err = %v, want ErrTokenReuse", err)
+		}
+		if familiesKilled != 0 {
+			t.Fatalf("families killed = %d, want 0 (no family is known for a hash no row knows)", familiesKilled)
+		}
+	})
+	t.Run("stale retry is rejected without killing the family", func(t *testing.T) {
+		familiesKilled := 0
+		id := uuid.New()
+		svc := NewService(
+			fakeStaffRepo{byID: func(ctx context.Context, got uuid.UUID) (*StaffCredentials, error) {
+				return &StaffCredentials{ID: id, Active: true}, nil
+			}},
+			&fakeRefreshRepo{
+				find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+					return &RefreshTokenRecord{StaffID: id, JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+				},
+				rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+					return RotateStaleRetry, id, uuid.New(), nil
+				},
+				revokeFamily: func(ctx context.Context, staffID uuid.UUID) error {
+					familiesKilled++
+					return nil
+				},
+			},
+			newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
+		)
+		if _, err := svc.Refresh(context.Background(), "superseded"); !errors.Is(err, ErrInvalidToken) {
 			t.Fatalf("err = %v, want ErrInvalidToken", err)
+		}
+		if errors.Is(func() error { _, err := svc.Refresh(context.Background(), "superseded"); return err }(), ErrTokenReuse) {
+			t.Fatal("stale retry reported as theft")
+		}
+		if familiesKilled != 0 {
+			t.Fatalf("families killed = %d, want 0 (benign retry must not kill the family)", familiesKilled)
+		}
+	})
+	t.Run("consumed or lapsed token kills the family", func(t *testing.T) {
+		var killed []uuid.UUID
+		id := uuid.New()
+		svc := NewService(
+			fakeStaffRepo{byID: func(ctx context.Context, got uuid.UUID) (*StaffCredentials, error) {
+				return &StaffCredentials{ID: id, Active: true}, nil
+			}},
+			&fakeRefreshRepo{
+				find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+					return &RefreshTokenRecord{StaffID: id, JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+				},
+				rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+					return RotateUnknown, id, uuid.New(), nil
+				},
+				revokeFamily: func(ctx context.Context, staffID uuid.UUID) error {
+					killed = append(killed, staffID)
+					return nil
+				},
+			},
+			newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
+		)
+		if _, err := svc.Refresh(context.Background(), "replayed"); !errors.Is(err, ErrTokenReuse) {
+			t.Fatalf("err = %v, want ErrTokenReuse", err)
+		}
+		if len(killed) != 1 || killed[0] != id {
+			t.Fatalf("families killed = %v, want [%v]", killed, id)
 		}
 	})
 	t.Run("staff gone or deactivated", func(t *testing.T) {
@@ -230,9 +318,14 @@ func TestServiceRefreshRejects(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				svc := NewService(
 					staff,
-					&fakeRefreshRepo{rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (uuid.UUID, uuid.UUID, error) {
-						return uuid.New(), uuid.New(), nil
-					}},
+					&fakeRefreshRepo{
+						find: func(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+							return &RefreshTokenRecord{StaffID: uuid.New(), JTI: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+						},
+						rotate: func(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+							return RotateRotated, uuid.New(), uuid.New(), nil
+						},
+					},
 					newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour,
 				)
 				if _, err := svc.Refresh(context.Background(), "t"); !errors.Is(err, ErrInvalidToken) {
@@ -282,5 +375,154 @@ func TestServiceVerifyTracksRevoked(t *testing.T) {
 	}
 	if got.JTI != p.JTI {
 		t.Fatalf("Verify jti = %v, want %v", got.JTI, p.JTI)
+	}
+}
+
+// TestServiceLoginRejectsUniformly pins the dummy-hash contract: unknown
+// emails, inactive accounts and passwordless accounts all fail with the same
+// ErrInvalidCredentials (never leaking ErrStaffNotFound or hash errors), so
+// callers cannot distinguish the cases. The argon2 cost itself cannot be
+// cheaply asserted in a unit test, so this covers the observable half.
+func TestServiceLoginRejectsUniformly(t *testing.T) {
+	issuer := testIssuer(t)
+	newSvc := func(staff StaffAuthRepository) *Service {
+		return NewService(staff, &fakeRefreshRepo{}, newFakeRevocations(), issuer, 15*time.Minute, 24*time.Hour)
+	}
+
+	cases := map[string]StaffAuthRepository{
+		"unknown email": fakeStaffRepo{},
+		"inactive account": fakeStaffRepo{byEmail: func(ctx context.Context, email string) (*StaffCredentials, error) {
+			return &StaffCredentials{ID: uuid.New(), PasswordHash: phc(t), Active: false}, nil
+		}},
+		"no password set": fakeStaffRepo{byEmail: func(ctx context.Context, email string) (*StaffCredentials, error) {
+			return &StaffCredentials{ID: uuid.New(), PasswordHash: "", Active: true}, nil
+		}},
+	}
+	for name, staff := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := newSvc(staff).Login(context.Background(), "a@x", "secret123")
+			if !errors.Is(err, ErrInvalidCredentials) {
+				t.Fatalf("err = %v, want ErrInvalidCredentials", err)
+			}
+			if errors.Is(err, ErrStaffNotFound) {
+				t.Fatal("staff absence leaked through Login")
+			}
+		})
+	}
+}
+
+// memRefreshRepo is a stateful in-memory RefreshTokenRepository mirroring the
+// postgres rotation semantics (current + grace-window predecessor), so the
+// double-use flow can be exercised end to end at the service layer.
+type memRefreshRepo struct {
+	staffID uuid.UUID
+	current string
+	jti     uuid.UUID
+	expires time.Time
+	prev    string
+	prevExp time.Time
+	alive   bool
+	killed  int
+}
+
+func (m *memRefreshRepo) CreateToken(ctx context.Context, staffID uuid.UUID, tokenHash string, jti uuid.UUID, expiresAt time.Time) error {
+	m.staffID, m.current, m.jti, m.expires = staffID, tokenHash, jti, expiresAt
+	m.alive = true
+	return nil
+}
+
+func (m *memRefreshRepo) FindByHash(ctx context.Context, tokenHash string) (*RefreshTokenRecord, error) {
+	if !m.alive || (tokenHash != m.current && tokenHash != m.prev) {
+		return nil, ErrInvalidToken
+	}
+	return &RefreshTokenRecord{StaffID: m.staffID, JTI: m.jti, ExpiresAt: m.expires, PrevHash: m.prev, PrevExpiresAt: m.prevExp}, nil
+}
+
+func (m *memRefreshRepo) RotateToken(ctx context.Context, tokenHash, newTokenHash string, newJTI uuid.UUID, expiresAt time.Time) (RotateOutcome, uuid.UUID, uuid.UUID, error) {
+	if !m.alive {
+		return RotateUnknown, uuid.Nil, uuid.Nil, nil
+	}
+	now := time.Now()
+	if tokenHash == m.current {
+		if !now.Before(m.expires) {
+			return RotateUnknown, m.staffID, m.jti, nil
+		}
+		old := m.jti
+		m.prev, m.prevExp = m.current, now.Add(5*time.Minute)
+		m.current, m.jti, m.expires = newTokenHash, newJTI, expiresAt
+		return RotateRotated, m.staffID, old, nil
+	}
+	if tokenHash == m.prev && tokenHash != "" && now.Before(m.prevExp) {
+		return RotateStaleRetry, m.staffID, m.jti, nil
+	}
+	return RotateUnknown, m.staffID, m.jti, nil
+}
+
+func (m *memRefreshRepo) RevokeByJTI(ctx context.Context, jti uuid.UUID) error { return nil }
+
+func (m *memRefreshRepo) RevokeFamilyByStaff(ctx context.Context, staffID uuid.UUID) error {
+	m.alive = false
+	m.killed++
+	return nil
+}
+
+// TestServiceRefreshDoubleUse drives the exact theft-detection contract:
+// reusing a just-rotated refresh token hits the predecessor grace window and
+// fails with ErrInvalidToken WITHOUT killing the family (the successor still
+// refreshes), while a token no row knows fails with ErrTokenReuse.
+func TestServiceRefreshDoubleUse(t *testing.T) {
+	ctx := context.Background()
+	id := uuid.New()
+	mem := &memRefreshRepo{}
+	svc := NewService(
+		fakeStaffRepo{byID: func(ctx context.Context, got uuid.UUID) (*StaffCredentials, error) {
+			return &StaffCredentials{ID: id, Active: true}, nil
+		}},
+		mem,
+		newFakeRevocations(), testIssuer(t), 15*time.Minute, 24*time.Hour,
+	)
+
+	// Seed the session directly (Login needs a staff record with a password).
+	seedRefresh, err := NewRefreshToken()
+	if err != nil {
+		t.Fatalf("NewRefreshToken: %v", err)
+	}
+	seedJTI := uuid.New()
+	if err := mem.CreateToken(ctx, id, HashRefreshToken(seedRefresh), seedJTI, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rotated, err := svc.Refresh(ctx, seedRefresh)
+	if err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	if rotated.RefreshToken == "" || rotated.RefreshToken == seedRefresh {
+		t.Fatalf("first Refresh did not issue a fresh token: %+v", rotated)
+	}
+
+	// Second use of the same token: predecessor match inside the grace
+	// window -> ErrInvalidToken, family untouched.
+	if _, err := svc.Refresh(ctx, seedRefresh); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("second Refresh err = %v, want ErrInvalidToken", err)
+	}
+	if errors.Is(func() error { _, err := svc.Refresh(ctx, seedRefresh); return err }(), ErrTokenReuse) {
+		t.Fatal("predecessor replay reported as theft")
+	}
+	if mem.killed != 0 {
+		t.Fatalf("families killed = %d, want 0 after benign retry", mem.killed)
+	}
+
+	// The successor still refreshes: the family survived the retry.
+	third, err := svc.Refresh(ctx, rotated.RefreshToken)
+	if err != nil {
+		t.Fatalf("successor Refresh: %v (family should have survived)", err)
+	}
+	if third.RefreshToken == "" {
+		t.Fatal("successor Refresh returned no token")
+	}
+
+	// A token no row knows is theft: ErrTokenReuse.
+	if _, err := svc.Refresh(ctx, "forged-token"); !errors.Is(err, ErrTokenReuse) {
+		t.Fatalf("forged Refresh err = %v, want ErrTokenReuse", err)
 	}
 }

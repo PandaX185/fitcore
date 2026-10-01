@@ -55,44 +55,74 @@ func NewAuthGuard(verify authVerifier, revoked revocationChecker, registry Regis
 // require a valid, unrevoked access token whose permission set satisfies the
 // route's rule. Missing/expired/revoked tokens yield 401; a valid token
 // without the required permission yields 403.
+//
+// The guard is fail-closed: a route with no registry rule is NOT waved
+// through. Only the explicit publicFallback allowlist (health/readiness,
+// OpenAPI spec, Swagger UI) passes without a token; every other unlisted
+// route requires a valid token, so anonymous callers get 401 on unmatched
+// paths while authenticated callers fall through to gin's 404.
 func (g *AuthGuard) Gin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rule, ok := g.registry.For(c.Request.Method, c.FullPath())
 		if !ok {
-			// Unlisted routes (docs, unmatched paths) are not guarded; gin
-			// resolves them as usual.
-			c.Next()
+			if publicFallback(c) {
+				c.Next()
+				return
+			}
+			g.requireAuth(c, nil)
 			return
 		}
 		if rule.Public {
 			c.Next()
 			return
 		}
-
-		raw, err := bearerToken(c)
-		if err != nil {
-			abortAuth(c, g.log, http.StatusUnauthorized, err)
-			return
-		}
-		p, err := g.verify.Verify(raw)
-		if err != nil {
-			abortAuth(c, g.log, http.StatusUnauthorized, err)
-			return
-		}
-		revoked, rerr := g.revoked.IsRevoked(c.Request.Context(), p.JTI)
-		if rerr != nil || revoked {
-			// Fail closed: a revocation-store error is treated as revoked.
-			abortAuth(c, g.log, http.StatusUnauthorized, rerr)
-			return
-		}
-		if len(rule.Permissions) > 0 && !auth.ContainsAny(p.Permissions, rule.Permissions) {
-			abortAuth(c, g.log, http.StatusForbidden, nil)
-			return
-		}
-
-		c.Set(contextKeyPrincipal, p)
-		c.Next()
+		g.requireAuth(c, rule.Permissions)
 	}
+}
+
+// requireAuth rejects anonymous callers with 401 and forbidden callers with
+// 403; valid callers carrying the required permissions proceed.
+func (g *AuthGuard) requireAuth(c *gin.Context, perms []auth.Permission) {
+	raw, err := bearerToken(c)
+	if err != nil {
+		abortAuth(c, g.log, http.StatusUnauthorized, err)
+		return
+	}
+	p, err := g.verify.Verify(raw)
+	if err != nil {
+		abortAuth(c, g.log, http.StatusUnauthorized, err)
+		return
+	}
+	revoked, rerr := g.revoked.IsRevoked(c.Request.Context(), p.JTI)
+	if rerr != nil || revoked {
+		// Fail closed: a revocation-store error is treated as revoked.
+		abortAuth(c, g.log, http.StatusUnauthorized, rerr)
+		return
+	}
+	if len(perms) > 0 && !auth.ContainsAny(p.Permissions, perms) {
+		abortAuth(c, g.log, http.StatusForbidden, nil)
+		return
+	}
+
+	c.Set(contextKeyPrincipal, p)
+	c.Next()
+}
+
+// publicFallback reports whether an unlisted route is part of the explicit
+// public allowlist: liveness/readiness, the raw OpenAPI spec and the Swagger
+// UI. /metrics stays public via its registry rule, not this fallback. The
+// gin route path is empty for unmatched requests, so match on the request
+// URL path instead.
+func publicFallback(c *gin.Context) bool {
+	path := c.FullPath()
+	if path == "" && c.Request != nil && c.Request.URL != nil {
+		path = c.Request.URL.Path
+	}
+	switch path {
+	case "/healthz", "/readyz", "/openapi.yaml", "/swagger":
+		return true
+	}
+	return strings.HasPrefix(path, "/swagger/")
 }
 
 func bearerToken(c *gin.Context) (string, error) {
@@ -109,11 +139,15 @@ func bearerToken(c *gin.Context) (string, error) {
 
 func abortAuth(c *gin.Context, log *slog.Logger, status int, cause error) {
 	if log != nil && cause != nil {
-		log.Warn("request rejected",
+		attrs := []any{
 			"route", c.FullPath(),
 			"status", status,
 			"error", cause,
-		)
+		}
+		if rid, ok := c.Get(RequestIDKey); ok {
+			attrs = append(attrs, "request_id", rid)
+		}
+		log.Warn("request rejected", attrs...)
 	}
 	code := "unauthorized"
 	if status == http.StatusForbidden {

@@ -82,6 +82,9 @@ func (h *authHandler) fail(c *gin.Context, op string, err error) {
 	case errors.Is(err, auth.ErrInvalidToken):
 		status = http.StatusUnauthorized
 		msg = "invalid or expired token"
+	case errors.Is(err, auth.ErrTokenReuse):
+		status = http.StatusUnauthorized
+		msg = "invalid or expired token"
 	}
 	httpx.Error(c, h.log, h.metrics, "auth", op, status, msg, err)
 }

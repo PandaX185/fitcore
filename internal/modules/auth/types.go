@@ -14,6 +14,13 @@ var (
 	// ErrInvalidToken means the presented token is not a valid, unexpired
 	// access or refresh token.
 	ErrInvalidToken = errors.New("invalid or expired token")
+	// ErrTokenReuse means a refresh token was presented that is neither the
+	// current nor a recent (grace-window) predecessor: either it never existed
+	// or its grace window lapsed. It signals possible token theft, so the
+	// whole refresh-token family is revoked. Like ErrInvalidToken it maps to
+	// HTTP 401; callers that need to distinguish theft from expiry must check
+	// for ErrTokenReuse first with errors.Is.
+	ErrTokenReuse = errors.New("refresh token reuse detected")
 	// ErrForbidden means the principal is authenticated but lacks a required
 	// permission.
 	ErrForbidden = errors.New("insufficient permissions")
@@ -55,4 +62,32 @@ type StaffCredentials struct {
 	PasswordHash string
 	Permissions  []Permission
 	Active       bool
+}
+
+// RotateOutcome describes what a RotateToken attempt found.
+type RotateOutcome int
+
+const (
+	// RotateUnknown means the presented hash matched no current token and no
+	// live predecessor: the token never existed, already expired, or its
+	// grace window lapsed. The caller treats this as theft.
+	RotateUnknown RotateOutcome = iota
+	// RotateRotated means the presented hash was the current token and it was
+	// atomically consumed in favour of its successor.
+	RotateRotated
+	// RotateStaleRetry means the presented hash is the immediate predecessor
+	// inside its grace window: a benign client retry (the first rotation
+	// response was lost). The family is left untouched.
+	RotateStaleRetry
+)
+
+// RefreshTokenRecord is the read-only view of a refresh-token row returned by
+// FindByHash, covering both the current token and its retained predecessor.
+type RefreshTokenRecord struct {
+	StaffID       uuid.UUID
+	JTI           uuid.UUID
+	ExpiresAt     time.Time
+	Revoked       bool
+	PrevHash      string
+	PrevExpiresAt time.Time
 }
