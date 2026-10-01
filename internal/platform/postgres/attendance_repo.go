@@ -34,12 +34,16 @@ func NewAttendanceRepository(db *DB) *AttendanceRepository {
 }
 
 func (r *AttendanceRepository) Create(ctx context.Context, a *attendance.Attendance) error {
-	return r.db.Gorm().WithContext(ctx).Create(toAttendanceRow(a)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toAttendanceRow(a)).Error
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return attendance.ErrAlreadyCheckedIn
+	}
+	return err
 }
 
 func (r *AttendanceRepository) GetByID(ctx context.Context, id uuid.UUID) (*attendance.Attendance, error) {
 	var row attendanceRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, attendance.ErrNotFound
 	}
@@ -53,7 +57,7 @@ func (r *AttendanceRepository) GetByID(ctx context.Context, id uuid.UUID) (*atte
 // (checked_in_at DESC, id), applying the exclusive cursor key and capping
 // the result at the requested limit.
 func (r *AttendanceRepository) ListByMember(ctx context.Context, q *attendance.MemberListQuery) ([]*attendance.Attendance, error) {
-	db := r.db.Gorm().WithContext(ctx).Where("member_id = ?", q.MemberID)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("member_id = ?", q.MemberID)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(checked_in_at < ?::timestamptz OR (checked_in_at = ?::timestamptz AND id > ?))",
 			q.AfterCheckedInAt, q.AfterCheckedInAt, q.AfterID)
@@ -72,7 +76,7 @@ func (r *AttendanceRepository) ListByMember(ctx context.Context, q *attendance.M
 
 func (r *AttendanceRepository) FindOpenByMember(ctx context.Context, memberID uuid.UUID) (*attendance.Attendance, error) {
 	var row attendanceRow
-	err := r.db.Gorm().WithContext(ctx).
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Where("member_id = ? AND checked_out_at IS NULL", memberID).
 		Order("checked_in_at DESC, id").First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -87,7 +91,7 @@ func (r *AttendanceRepository) FindOpenByMember(ctx context.Context, memberID uu
 // Close stamps checked_out_at only when the record is still open; a zero-row
 // update maps to ErrNotFound (including the already-closed race).
 func (r *AttendanceRepository) Close(ctx context.Context, a *attendance.Attendance) error {
-	res := r.db.Gorm().WithContext(ctx).
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Model(&attendanceRow{}).
 		Where("id = ? AND checked_out_at IS NULL", a.ID).
 		Update("checked_out_at", a.CheckedOutAt)

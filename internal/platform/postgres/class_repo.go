@@ -36,12 +36,12 @@ func NewClassRepository(db *DB) *ClassRepository {
 }
 
 func (r *ClassRepository) Create(ctx context.Context, c *classes.Class) error {
-	return r.db.Gorm().WithContext(ctx).Create(toClassRow(c)).Error
+	return FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toClassRow(c)).Error
 }
 
 func (r *ClassRepository) GetByID(ctx context.Context, id uuid.UUID) (*classes.Class, error) {
 	var row classRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, classes.ErrNotFound
 	}
@@ -69,7 +69,7 @@ func (r *ClassRepository) Update(ctx context.Context, id uuid.UUID, patch *class
 		sets["capacity"] = *patch.Capacity
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&classRow{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&classRow{}).Where("id = ?", id).Updates(sets)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -80,7 +80,7 @@ func (r *ClassRepository) Update(ctx context.Context, id uuid.UUID, patch *class
 }
 
 func (r *ClassRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	res := r.db.Gorm().WithContext(ctx).Where("id = ?", id).Delete(&classRow{})
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("id = ?", id).Delete(&classRow{})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -91,7 +91,7 @@ func (r *ClassRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *ClassRepository) List(ctx context.Context, q *classes.ListQuery) ([]*classes.Class, error) {
-	db := r.db.Gorm().WithContext(ctx)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx)
 	if q.BranchID != nil && *q.BranchID != uuid.Nil {
 		db = db.Where("branch_id = ?", *q.BranchID)
 	}

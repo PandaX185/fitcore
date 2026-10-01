@@ -37,7 +37,7 @@ func NewStaffRepository(db *DB) *StaffRepository {
 }
 
 func (r *StaffRepository) Create(ctx context.Context, s *staff.Staff) error {
-	err := r.db.Gorm().WithContext(ctx).Create(toStaffRow(s)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toStaffRow(s)).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return staff.ErrDuplicateEmail
 	}
@@ -46,7 +46,7 @@ func (r *StaffRepository) Create(ctx context.Context, s *staff.Staff) error {
 
 func (r *StaffRepository) GetByID(ctx context.Context, id uuid.UUID) (*staff.Staff, error) {
 	var row staffRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, staff.ErrNotFound
 	}
@@ -59,7 +59,7 @@ func (r *StaffRepository) GetByID(ctx context.Context, id uuid.UUID) (*staff.Sta
 // ListByBranch returns one branch's staff ordered by (name, id), applying
 // the exclusive cursor key and capping the result at the requested limit.
 func (r *StaffRepository) ListByBranch(ctx context.Context, q *staff.BranchListQuery) ([]*staff.Staff, error) {
-	db := r.db.Gorm().WithContext(ctx).Where("branch_id = ?", q.BranchID)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("branch_id = ?", q.BranchID)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
 	}
@@ -93,7 +93,7 @@ func (r *StaffRepository) Update(ctx context.Context, id uuid.UUID, patch *staff
 		sets["active"] = *patch.Active
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&staffRow{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&staffRow{}).Where("id = ?", id).Updates(sets)
 	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
 		return staff.ErrDuplicateEmail
 	}

@@ -22,12 +22,12 @@ func NewBranchRepository(db *DB) *BranchRepository {
 }
 
 func (r *BranchRepository) Create(ctx context.Context, b *branches.Branch) error {
-	return r.db.Gorm().WithContext(ctx).Create(b).Error
+	return FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(b).Error
 }
 
 func (r *BranchRepository) GetByID(ctx context.Context, id uuid.UUID) (*branches.Branch, error) {
 	var b branches.Branch
-	err := r.db.Gorm().WithContext(ctx).First(&b, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&b, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, branches.ErrNotFound
 	}
@@ -40,7 +40,7 @@ func (r *BranchRepository) GetByID(ctx context.Context, id uuid.UUID) (*branches
 // List returns rows ordered by (name, id), applying the search filter and the
 // exclusive cursor key and capping the result at the requested limit.
 func (r *BranchRepository) List(ctx context.Context, q *branches.ListQuery) ([]*branches.Branch, error) {
-	db := r.db.Gorm().WithContext(ctx)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx)
 	if q.Query != "" {
 		pattern := likePattern(q.Query)
 		db = db.Where("(name ILIKE ? OR address ILIKE ?)", pattern, pattern)
@@ -68,7 +68,7 @@ func (r *BranchRepository) Update(ctx context.Context, id uuid.UUID, patch *bran
 		sets["longitude"] = *patch.Longitude
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&branches.Branch{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&branches.Branch{}).Where("id = ?", id).Updates(sets)
 	if res.Error != nil {
 		return res.Error
 	}

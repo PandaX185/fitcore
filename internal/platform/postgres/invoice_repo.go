@@ -38,16 +38,16 @@ func NewInvoiceRepository(db *DB) *InvoiceRepository {
 }
 
 func (r *InvoiceRepository) Create(ctx context.Context, inv *billing.Invoice) error {
-	err := r.db.Gorm().WithContext(ctx).Create(toInvoiceRow(inv)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toInvoiceRow(inv)).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return billing.ErrInvalidInput
+		return billing.ErrDuplicate
 	}
 	return err
 }
 
 func (r *InvoiceRepository) GetByID(ctx context.Context, id uuid.UUID) (*billing.Invoice, error) {
 	var row invoiceRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, billing.ErrNotFound
 	}
@@ -61,7 +61,7 @@ func (r *InvoiceRepository) GetByID(ctx context.Context, id uuid.UUID) (*billing
 // (issued_on DESC, id), applying the exclusive cursor key and capping the
 // result at the requested limit.
 func (r *InvoiceRepository) ListByMember(ctx context.Context, q *billing.MemberListQuery) ([]*billing.Invoice, error) {
-	db := r.db.Gorm().WithContext(ctx).Where("member_id = ?", q.MemberID)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("member_id = ?", q.MemberID)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(issued_on < ?::timestamptz OR (issued_on = ?::timestamptz AND id > ?))",
 			q.AfterIssuedAt, q.AfterIssuedAt, q.AfterID)
@@ -95,7 +95,7 @@ func (r *InvoiceRepository) Update(ctx context.Context, id uuid.UUID, patch *bil
 		sets["due_at"] = *patch.DueAt
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&invoiceRow{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&invoiceRow{}).Where("id = ?", id).Updates(sets)
 	if res.Error != nil {
 		return res.Error
 	}

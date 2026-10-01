@@ -35,7 +35,7 @@ func NewTrainerRepository(db *DB) *TrainerRepository {
 }
 
 func (r *TrainerRepository) Create(ctx context.Context, t *trainers.Trainer) error {
-	err := r.db.Gorm().WithContext(ctx).Create(toTrainerRow(t)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toTrainerRow(t)).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return trainers.ErrDuplicateEmail
 	}
@@ -44,7 +44,7 @@ func (r *TrainerRepository) Create(ctx context.Context, t *trainers.Trainer) err
 
 func (r *TrainerRepository) GetByID(ctx context.Context, id uuid.UUID) (*trainers.Trainer, error) {
 	var row trainerRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, trainers.ErrNotFound
 	}
@@ -58,7 +58,7 @@ func (r *TrainerRepository) GetByID(ctx context.Context, id uuid.UUID) (*trainer
 // applying the exclusive cursor key and capping the result at the requested
 // limit.
 func (r *TrainerRepository) ListByBranch(ctx context.Context, q *trainers.BranchListQuery) ([]*trainers.Trainer, error) {
-	db := r.db.Gorm().WithContext(ctx).Where("branch_id = ?", q.BranchID)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("branch_id = ?", q.BranchID)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
 	}
@@ -89,7 +89,7 @@ func (r *TrainerRepository) Update(ctx context.Context, id uuid.UUID, patch *tra
 		sets["active"] = *patch.Active
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&trainerRow{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&trainerRow{}).Where("id = ?", id).Updates(sets)
 	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
 		return trainers.ErrDuplicateEmail
 	}

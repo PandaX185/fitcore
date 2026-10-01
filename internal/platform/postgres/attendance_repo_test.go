@@ -116,6 +116,10 @@ func TestAttendanceRepositoryListByMember(t *testing.T) {
 		if err := repo.Create(ctx, &attendance.Attendance{ID: id, MemberID: memberID, BranchID: branchID, MembershipID: membershipID, CheckedInAt: now, CreatedAt: now}); err != nil {
 			t.Fatalf("Create %d: %v", i, err)
 		}
+		out := now.Add(time.Minute)
+		if err := repo.Close(ctx, &attendance.Attendance{ID: id, CheckedOutAt: &out}); err != nil {
+			t.Fatalf("Close %d: %v", i, err)
+		}
 		ids = append(ids, id)
 	}
 	for _, id := range ids {
@@ -155,6 +159,12 @@ func TestAttendanceRepositoryListByMemberPaginates(t *testing.T) {
 			CheckedInAt: at, CreatedAt: at,
 		}); err != nil {
 			t.Fatalf("Create: %v", err)
+		}
+		// Only one open visit may exist per member (uq_attendance_open_member);
+		// close each row so the next insert is legal. Closed rows still page.
+		out := at.Add(time.Minute)
+		if err := repo.Close(ctx, &attendance.Attendance{ID: id, CheckedOutAt: &out}); err != nil {
+			t.Fatalf("Close: %v", err)
 		}
 		cleanupTable(t, db, "attendance", id)
 	}

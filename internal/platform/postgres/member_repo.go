@@ -21,7 +21,7 @@ func NewMemberRepository(db *DB) *MemberRepository {
 }
 
 func (r *MemberRepository) Create(ctx context.Context, m *members.Member) error {
-	err := r.db.Gorm().WithContext(ctx).Create(m).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(m).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return members.ErrDuplicateEmail
 	}
@@ -30,7 +30,7 @@ func (r *MemberRepository) Create(ctx context.Context, m *members.Member) error 
 
 func (r *MemberRepository) GetByID(ctx context.Context, id uuid.UUID) (*members.Member, error) {
 	var m members.Member
-	err := r.db.Gorm().WithContext(ctx).First(&m, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&m, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, members.ErrNotFound
 	}
@@ -57,7 +57,7 @@ func (r *MemberRepository) Update(ctx context.Context, id uuid.UUID, patch *memb
 		sets["status"] = *patch.Status
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&members.Member{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&members.Member{}).Where("id = ?", id).Updates(sets)
 	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
 		return members.ErrDuplicateEmail
 	}
@@ -72,7 +72,7 @@ func (r *MemberRepository) Update(ctx context.Context, id uuid.UUID, patch *memb
 
 // Delete removes a member by ID, reporting ErrNotFound when no row matches.
 func (r *MemberRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	res := r.db.Gorm().WithContext(ctx).Where("id = ?", id).Delete(&members.Member{})
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("id = ?", id).Delete(&members.Member{})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -85,7 +85,7 @@ func (r *MemberRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // List returns rows ordered by (name, id), applying the exclusive cursor key
 // and capping the result at the requested limit.
 func (r *MemberRepository) List(ctx context.Context, q *members.ListQuery) ([]*members.Member, error) {
-	db := r.db.Gorm().WithContext(ctx)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
 	}

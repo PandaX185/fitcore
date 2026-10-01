@@ -33,7 +33,7 @@ func NewBookingRepository(db *DB) *BookingRepository {
 }
 
 func (r *BookingRepository) Create(ctx context.Context, b *bookings.Booking) error {
-	err := r.db.Gorm().WithContext(ctx).Create(toClassBookingRow(b)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toClassBookingRow(b)).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return bookings.ErrDuplicate
 	}
@@ -42,7 +42,7 @@ func (r *BookingRepository) Create(ctx context.Context, b *bookings.Booking) err
 
 func (r *BookingRepository) GetByID(ctx context.Context, id uuid.UUID) (*bookings.Booking, error) {
 	var row classBookingRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, bookings.ErrNotFound
 	}
@@ -53,7 +53,7 @@ func (r *BookingRepository) GetByID(ctx context.Context, id uuid.UUID) (*booking
 }
 
 func (r *BookingRepository) Cancel(ctx context.Context, b *bookings.Booking) error {
-	return r.db.Gorm().WithContext(ctx).
+	return FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Model(&classBookingRow{}).
 		Where("id = ?", b.ID).
 		Updates(map[string]any{
@@ -66,7 +66,7 @@ func (r *BookingRepository) Cancel(ctx context.Context, b *bookings.Booking) err
 // applying the exclusive cursor key and capping the result at the requested
 // limit.
 func (r *BookingRepository) ListByClass(ctx context.Context, q *bookings.ClassListQuery) ([]*bookings.Booking, error) {
-	db := r.db.Gorm().WithContext(ctx).Where("class_id = ?", q.ClassID)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("class_id = ?", q.ClassID)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(created_at, id) > (?::timestamptz, ?)", q.AfterBookedAt, q.AfterID)
 	}
@@ -84,7 +84,7 @@ func (r *BookingRepository) ListByClass(ctx context.Context, q *bookings.ClassLi
 
 func (r *BookingRepository) CountActiveByClass(ctx context.Context, classID uuid.UUID) (int, error) {
 	var count int64
-	err := r.db.Gorm().WithContext(ctx).
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Model(&classBookingRow{}).
 		Where("class_id = ? AND status = ?", classID, bookings.StatusBooked).
 		Count(&count).Error

@@ -35,7 +35,7 @@ func NewPackageRepository(db *DB) *PackageRepository {
 }
 
 func (r *PackageRepository) Create(ctx context.Context, p *packages.Package) error {
-	err := r.db.Gorm().WithContext(ctx).Create(toMembershipPackageRow(p)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toMembershipPackageRow(p)).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return packages.ErrDuplicateName
 	}
@@ -44,7 +44,7 @@ func (r *PackageRepository) Create(ctx context.Context, p *packages.Package) err
 
 func (r *PackageRepository) GetByID(ctx context.Context, id uuid.UUID) (*packages.Package, error) {
 	var row membershipPackageRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, packages.ErrNotFound
 	}
@@ -55,7 +55,7 @@ func (r *PackageRepository) GetByID(ctx context.Context, id uuid.UUID) (*package
 }
 
 func (r *PackageRepository) List(ctx context.Context, q *packages.ListQuery) ([]*packages.Package, error) {
-	db := r.db.Gorm().WithContext(ctx)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(name, id) > (?, ?)", q.AfterName, q.AfterID)
 	}
@@ -91,7 +91,7 @@ func (r *PackageRepository) Update(ctx context.Context, id uuid.UUID, patch *pac
 		sets["active"] = *patch.Active
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&membershipPackageRow{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&membershipPackageRow{}).Where("id = ?", id).Updates(sets)
 	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
 		return packages.ErrDuplicateName
 	}

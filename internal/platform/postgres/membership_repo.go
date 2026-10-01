@@ -36,7 +36,7 @@ func NewMembershipRepository(db *DB) *MembershipRepository {
 }
 
 func (r *MembershipRepository) Create(ctx context.Context, m *memberships.Membership) error {
-	err := r.db.Gorm().WithContext(ctx).Create(toMembershipRow(m)).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Create(toMembershipRow(m)).Error
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
 		return memberships.ErrDuplicateActive
 	}
@@ -45,7 +45,7 @@ func (r *MembershipRepository) Create(ctx context.Context, m *memberships.Member
 
 func (r *MembershipRepository) GetByID(ctx context.Context, id uuid.UUID) (*memberships.Membership, error) {
 	var row membershipRow
-	err := r.db.Gorm().WithContext(ctx).First(&row, "id = ?", id).Error
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, memberships.ErrNotFound
 	}
@@ -59,7 +59,7 @@ func (r *MembershipRepository) GetByID(ctx context.Context, id uuid.UUID) (*memb
 // (starts_on DESC, id), applying the exclusive cursor key and capping the
 // result at the requested limit.
 func (r *MembershipRepository) ListByMember(ctx context.Context, q *memberships.MemberListQuery) ([]*memberships.Membership, error) {
-	db := r.db.Gorm().WithContext(ctx).Where("member_id = ?", q.MemberID)
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Where("member_id = ?", q.MemberID)
 	if q.AfterID != uuid.Nil {
 		db = db.Where("(starts_on < ?::timestamptz OR (starts_on = ?::timestamptz AND id > ?))",
 			q.AfterStartsAt, q.AfterStartsAt, q.AfterID)
@@ -85,7 +85,7 @@ func (r *MembershipRepository) Update(ctx context.Context, id uuid.UUID, patch *
 		sets["expires_on"] = *patch.ExpiresAt
 	}
 
-	res := r.db.Gorm().WithContext(ctx).Model(&membershipRow{}).Where("id = ?", id).Updates(sets)
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&membershipRow{}).Where("id = ?", id).Updates(sets)
 	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
 		return memberships.ErrDuplicateActive
 	}
@@ -100,7 +100,7 @@ func (r *MembershipRepository) Update(ctx context.Context, id uuid.UUID, patch *
 
 func (r *MembershipRepository) HasActiveByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
 	var count int64
-	err := r.db.Gorm().WithContext(ctx).
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Model(&membershipRow{}).
 		Where("member_id = ? AND status = ?", memberID, memberships.StatusActive).
 		Count(&count).Error
@@ -109,7 +109,7 @@ func (r *MembershipRepository) HasActiveByMember(ctx context.Context, memberID u
 
 func (r *MembershipRepository) FindActiveByMemberAndBranch(ctx context.Context, memberID, branchID uuid.UUID) (*memberships.Membership, error) {
 	var row membershipRow
-	err := r.db.Gorm().WithContext(ctx).
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Where("member_id = ? AND branch_id = ? AND status = ?", memberID, branchID, memberships.StatusActive).
 		Order("starts_on DESC, id").First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
