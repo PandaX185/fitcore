@@ -37,6 +37,18 @@ func (c *Client) Close() error {
 	return c.rdb.Close()
 }
 
+// Incr increments the counter at key and reports the new value. Exposed for
+// the shared Redis-backed auth rate limiter.
+func (c *Client) Incr(ctx context.Context, key string) (int64, error) {
+	return c.rdb.Incr(ctx, key).Result()
+}
+
+// Expire sets a TTL on key, reporting whether the key existed. Exposed for
+// the shared Redis-backed auth rate limiter.
+func (c *Client) Expire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return c.rdb.Expire(ctx, key, ttl).Result()
+}
+
 // FlushDB drops all keys in the selected database. It exists for the test
 // helper and should never be called at runtime.
 func (c *Client) FlushDB(ctx context.Context) error {

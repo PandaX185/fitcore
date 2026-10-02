@@ -30,6 +30,10 @@ type Config struct {
 	// RateLimitDisabled disables the auth-endpoint rate limiter. Only the
 	// isolated load-test stack sets this; production compose must never.
 	RateLimitDisabled bool
+	// RateLimitRedis switches the auth limiter backing store from the
+	// per-instance in-memory map to a shared Redis fixed-window counter, so
+	// the same budget applies across API replicas.
+	RateLimitRedis bool
 }
 
 // Load reads configuration from the environment. DATABASE_URL, TOKEN_SECRET
@@ -57,6 +61,7 @@ func Load() (Config, error) {
 		MaxIdleConns: parseInt(getenv("DB_MAX_IDLE_CONNS", "5"), 5),
 
 		RateLimitDisabled: parseBool(getenv("RATE_LIMIT_DISABLED", "false")),
+		RateLimitRedis:    parseBool(getenv("RATE_LIMIT_REDIS", "false")),
 	}
 
 	if cfg.DatabaseURL == "" {

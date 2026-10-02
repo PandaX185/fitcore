@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"sync"
@@ -9,14 +10,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// authRateLimit is the shared fixed-window budget for the credential-bearing
-// auth endpoints: 60 requests per minute per client IP across /auth/login and
-// /auth/refresh. A shared window (rather than per-endpoint) keeps password
-// guessing and token-replay probing under one ceiling.
+// DefaultAuthRateLimit is the shared fixed-window budget for the
+// credential-bearing auth endpoints: 60 requests per minute per client IP
+// across /auth/login and /auth/refresh. A shared window (rather than
+// per-endpoint) keeps password guessing and token-replay probing under one
+// ceiling.
 const (
-	authRateLimit  = 60
-	authRateWindow = time.Minute
+	DefaultAuthRateLimit  = 60
+	DefaultAuthRateWindow = time.Minute
 )
+
+// AuthLimiter is what the router requires to guard the auth endpoints. The
+// in-memory limiter is per-instance (adequate for a single-VPS deployment);
+// NewRedisAuthRateLimiter provides the same budget shared across replicas.
+type AuthLimiter interface {
+	Gin() gin.HandlerFunc
+}
 
 // RateLimiter is a per-IP fixed-window rate limiter. Buckets expire lazily on
 // access (no background goroutine): an expired bucket is reset on next use,
@@ -51,12 +60,12 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	}
 }
 
-// NewAuthRateLimiter builds the limiter guarding the /auth/* endpoints.
-// disabled short-circuits the limiter entirely; only the isolated load-test
-// stack enables it, so load phases measuring the raw ceiling are not throttled
-// by the same source IP.
+// NewAuthRateLimiter builds the in-memory limiter guarding the /auth/*
+// endpoints. disabled short-circuits the limiter entirely; only the isolated
+// load-test stack enables it, so load phases measuring the raw ceiling are
+// not throttled by the same source IP.
 func NewAuthRateLimiter(disabled bool) *RateLimiter {
-	l := NewRateLimiter(authRateLimit, authRateWindow)
+	l := NewRateLimiter(DefaultAuthRateLimit, DefaultAuthRateWindow)
 	l.disabled = disabled
 	return l
 }
@@ -65,25 +74,7 @@ func NewAuthRateLimiter(disabled bool) *RateLimiter {
 // endpoints (login + refresh share one budget per IP). Other routes pass
 // through untouched.
 func (l *RateLimiter) Gin() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if l.disabled {
-			c.Next()
-			return
-		}
-		path := c.Request.URL.Path
-		if path != "/auth/login" && path != "/auth/refresh" {
-			c.Next()
-			return
-		}
-		ip := c.ClientIP()
-		retryAfter, ok := l.allow(ip)
-		if !ok {
-			c.Header("Retry-After", itoaSeconds(retryAfter))
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate_limited", "code": "rate_limited"})
-			return
-		}
-		c.Next()
-	}
+	return authLimiterGin(l, l.disabled)
 }
 
 // allow records one request from ip. It reports the remaining cooldown and
@@ -124,6 +115,43 @@ func itoaSeconds(d time.Duration) string {
 		s = 1 << 62
 	}
 	return itoa(s)
+}
+
+// limiterBackend is the per-request budget check shared by the in-memory and
+// redis-backed limiters. Both implementations are injected through the same
+// middleware so the 429 contract and Retry-After semantics cannot drift.
+type limiterBackend interface {
+	check(ctx context.Context, ip string) (time.Duration, bool)
+}
+
+// check adapts the in-memory limiter (which needs no context) to the shared
+// backend interface.
+func (l *RateLimiter) check(_ context.Context, ip string) (time.Duration, bool) {
+	return l.allow(ip)
+}
+
+// authLimiterGin is the shared Gin middleware: it rate-limits only the
+// credential-bearing auth endpoints. Other routes pass through untouched.
+func authLimiterGin(l limiterBackend, disabled bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if disabled {
+			c.Next()
+			return
+		}
+		path := c.Request.URL.Path
+		if path != "/auth/login" && path != "/auth/refresh" {
+			c.Next()
+			return
+		}
+		ip := c.ClientIP()
+		retryAfter, ok := l.check(c.Request.Context(), ip)
+		if !ok {
+			c.Header("Retry-After", itoaSeconds(retryAfter))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate_limited", "code": "rate_limited"})
+			return
+		}
+		c.Next()
+	}
 }
 
 func itoa(n int64) string {

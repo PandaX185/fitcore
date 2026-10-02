@@ -13,6 +13,7 @@ import (
 
 	"github.com/PandaX185/fitcore/internal/config"
 	"github.com/PandaX185/fitcore/internal/httpapi"
+	"github.com/PandaX185/fitcore/internal/httpapi/middleware"
 	"github.com/PandaX185/fitcore/internal/modules/auth"
 	"github.com/PandaX185/fitcore/internal/platform/logging"
 	"github.com/PandaX185/fitcore/internal/platform/postgres"
@@ -62,6 +63,18 @@ func run() error {
 	authSvc := auth.NewService(authRepo, authRepo, revocations, issuer, cfg.AccessTokenTTL, cfg.RefreshTTL)
 
 	metrics := telemetry.New()
+
+	// Auth rate limiter: a shared Redis fixed-window counter when
+	// RATE_LIMIT_REDIS=true (multi-replica budget), otherwise the in-memory
+	// per-instance limiter. The disabled flag (load stack only) wins either way.
+	var authLimiter middleware.AuthLimiter
+	if cfg.RateLimitRedis && !cfg.RateLimitDisabled {
+		authLimiter = middleware.NewRedisAuthLimiter(
+			middleware.DefaultAuthRateLimit, middleware.DefaultAuthRateWindow, redisClient, log, false)
+	} else {
+		authLimiter = middleware.NewAuthRateLimiter(cfg.RateLimitDisabled)
+	}
+
 	router := httpapi.New(httpapi.Deps{
 		Logger:            log,
 		Metrics:           metrics,
@@ -69,6 +82,7 @@ func run() error {
 		Auth:              authSvc,
 		Revocations:       revocations,
 		RateLimitDisabled: cfg.RateLimitDisabled,
+		AuthLimiter:       authLimiter,
 	})
 
 	srv := &http.Server{
@@ -84,6 +98,15 @@ func run() error {
 	go func() {
 		log.Info("fitcore server listening", "addr", cfg.HTTPAddr)
 		srvErr <- srv.ListenAndServe()
+	}()
+
+	// Pool sampler: 15s cadence keeps dashboards fresh without churn.
+	poolTicker := time.NewTicker(15 * time.Second)
+	defer poolTicker.Stop()
+	go func() {
+		for range poolTicker.C {
+			metrics.ObservePoolStats(db.Stats())
+		}
 	}()
 
 	stop := make(chan os.Signal, 2)
@@ -103,7 +126,10 @@ func run() error {
 			log.Error("second signal received, forcing exit")
 			os.Exit(1)
 		}()
-		shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		poolTicker.Stop()
+		// Drain longer than typical requests: in-flight check-ins, booking
+		// transactions and login Argon2 work can exceed 10s under load.
+		shutdownCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("http server shutdown: %w", err)

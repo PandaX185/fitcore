@@ -29,6 +29,9 @@ type Deps struct {
 	// RateLimitDisabled disables the auth-endpoint rate limiter for isolated
 	// load-testing; production deployments must leave it false.
 	RateLimitDisabled bool
+	// AuthLimiter overrides the default in-memory auth limiter (e.g. the
+	// Redis-backed shared limiter set up in main). Nil keeps the default.
+	AuthLimiter middleware.AuthLimiter
 }
 
 // New builds the Gin engine. Module routes are mounted via the generated
@@ -56,7 +59,11 @@ func New(deps Deps) *gin.Engine {
 	r.Use(middleware.RequestID())
 	r.Use(middleware.RequestLog(deps.Logger))
 	r.Use(middleware.Metrics(deps.Metrics))
-	r.Use(middleware.NewAuthRateLimiter(deps.RateLimitDisabled).Gin())
+	authLimiter := deps.AuthLimiter
+	if authLimiter == nil {
+		authLimiter = middleware.NewAuthRateLimiter(deps.RateLimitDisabled)
+	}
+	r.Use(authLimiter.Gin())
 	r.Use(middleware.NewAuthGuard(deps.Auth, deps.Revocations, middleware.DefaultRegistry(), deps.Logger).Gin())
 
 	r.GET("/healthz", healthz)

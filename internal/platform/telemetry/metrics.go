@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"time"
 
@@ -20,6 +21,8 @@ type Metrics struct {
 	ApplicationErrorsTotal    *prometheus.CounterVec
 	DatabaseErrorsTotal       *prometheus.CounterVec
 	membershipsPurchasedTotal prometheus.Counter
+	dbPoolOpen                prometheus.Gauge
+	dbPoolInUse               prometheus.Gauge
 }
 
 func New() *Metrics {
@@ -55,7 +58,17 @@ func New() *Metrics {
 		Name:      "memberships_purchased_total",
 		Help:      "Total number of memberships purchased.",
 	})
-	reg.MustRegister(httpRequests, httpDuration, appErrors, dbErrors, membershipsPurchased)
+	dbPoolOpen := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "db_pool_open",
+		Help:      "Current number of open database connections in the app pool.",
+	})
+	dbPoolInUse := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "db_pool_in_use",
+		Help:      "Current number of in-use database connections in the app pool.",
+	})
+	reg.MustRegister(httpRequests, httpDuration, appErrors, dbErrors, membershipsPurchased, dbPoolOpen, dbPoolInUse)
 
 	return &Metrics{
 		Registry:                  reg,
@@ -64,6 +77,8 @@ func New() *Metrics {
 		ApplicationErrorsTotal:    appErrors,
 		DatabaseErrorsTotal:       dbErrors,
 		membershipsPurchasedTotal: membershipsPurchased,
+		dbPoolOpen:                dbPoolOpen,
+		dbPoolInUse:               dbPoolInUse,
 	}
 }
 
@@ -94,4 +109,14 @@ func (m *Metrics) RecordMembershipPurchased(_ context.Context) {
 		return
 	}
 	m.membershipsPurchasedTotal.Inc()
+}
+
+// ObservePoolStats records the database connection pool state. It is called
+// by a background sampler in main so dashboards can see pool saturation.
+func (m *Metrics) ObservePoolStats(stats sql.DBStats) {
+	if m == nil {
+		return
+	}
+	m.dbPoolOpen.Set(float64(stats.OpenConnections))
+	m.dbPoolInUse.Set(float64(stats.InUse))
 }

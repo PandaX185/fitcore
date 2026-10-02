@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -82,4 +83,13 @@ func (d *DB) Close() error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// Stats returns the underlying database/sql pool statistics for observability.
+func (d *DB) Stats() sql.DBStats {
+	sqlDB, err := d.conn.DB()
+	if err != nil {
+		return sql.DBStats{}
+	}
+	return sqlDB.Stats()
 }
