@@ -60,6 +60,10 @@ check:
     just test
     just gen-check
 
+# Scan Go dependencies for known vulnerabilities (also runs in CI)
+vuln:
+    go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 # Install git pre-commit hooks (core.hooksPath = .githooks)
 install-hooks:
     git config core.hooksPath .githooks
@@ -177,3 +181,35 @@ load-correctness capacity='30':
 # Long soak: SLO mix in 4 consecutive windows watching latency drift + memory
 load-soak rate='100' duration='45m':
     @cd scripts/load && go run . -mode soak -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -rate {{ rate }} -duration {{ duration }} -out ../../artifacts/load
+
+# ---- production (deploy/docker-compose.prod.yml + .env) -----------------
+
+# Validate and start the production stack. Requires .env (see deploy/.env.prod.example).
+prod-up:
+    set -a; . ./.env; set +a
+    docker compose -f deploy/docker-compose.prod.yml up -d --build
+
+# Stop the production stack (volumes kept)
+prod-down:
+    docker compose -f deploy/docker-compose.prod.yml down
+
+# Stream production logs (all services, follow)
+prod-logs *svc:
+    docker compose -f deploy/docker-compose.prod.yml logs -f --tail 100 {{ svc }}
+
+# Show production stack status
+prod-status:
+    docker compose -f deploy/docker-compose.prod.yml ps
+
+# Apply pending migrations to the production database (one-shot migrate service)
+prod-migrate:
+    docker compose -f deploy/docker-compose.prod.yml run --rm migrate
+
+# Nightly full backup (pg_dump custom format, 14-dump retention)
+prod-backup *args:
+    set -a; . ./.env; set +a
+    @scripts/backup.sh deploy/docker-compose.prod.yml ./backups {{ args }}
+
+# Prove the newest backup restores (throwaway postgres, prod untouched)
+prod-restore-drill:
+    @scripts/restore-drill.sh
