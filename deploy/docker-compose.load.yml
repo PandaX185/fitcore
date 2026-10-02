@@ -1,0 +1,98 @@
+# Isolated load-test stack.
+#
+# Standalone on purpose: runs under its own project name (fitcore-load) with
+# fresh volumes so stress tests can never touch the dev database or services.
+# The stack is deliberately minimal: postgres -> pgbouncer -> server -> redis
+# is the full production request path; no prometheus/grafana/alertmanager are
+# started so load results come from the app's /metrics + the load harness.
+#
+# Server publishes on LOAD_SERVER_PORT (default 8081) bound to loopback. The
+# auth rate limiter is DISABLED here (RATE_LIMIT_DISABLED=true) so load phases
+# measure the raw ceiling; production compose must never set that variable.
+#
+#   docker compose -f deploy/docker-compose.load.yml up -d --build
+
+name: fitcore-load
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fitcore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fitcore}
+      POSTGRES_DB: ${POSTGRES_DB:-fitcore}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Loopback-only: used by `load-migrate` and `load-seed-admin` outside
+      # the compose network; the app itself talks to pgbouncer.
+      - "127.0.0.1:${LOAD_POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p3
+    environment:
+      DB_USER: ${POSTGRES_USER:-fitcore}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-fitcore}
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:-fitcore}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: session
+      MAX_CLIENT_CONN: "100"
+      DEFAULT_POOL_SIZE: "20"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # pgbouncer answers "NOTICE: pgbouncer is running" style on connect; use
+      # a real login probe so "ready" means it can reach postgres.
+      test: ["CMD-SHELL", "PGPASSWORD=$${DB_PASSWORD} psql -h 127.0.0.1 -U $${DB_USER} -d $${DB_NAME} -c 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 4s
+      retries: 15
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    environment:
+      FITCORE_ENV: development
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://${POSTGRES_USER:-fitcore}:${POSTGRES_PASSWORD:-fitcore}@pgbouncer:5432/${POSTGRES_DB:-fitcore}?sslmode=disable
+      # Local-only JWT signing key for the isolated stack (>= 32 bytes).
+      TOKEN_SECRET: ${TOKEN_SECRET:-loadtestsecret-loadtestsecret-loadtestsecret-0001}
+      REDIS_URL: redis://redis:6379/0
+      # Auth limiter off so the load generator is not throttled by source IP.
+      RATE_LIMIT_DISABLED: "true"
+    ports:
+      - "127.0.0.1:${LOAD_SERVER_PORT:-8081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:

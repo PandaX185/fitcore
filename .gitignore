@@ -11,6 +11,9 @@ dist/
 coverage.out
 *.prof
 
+# Load-test fixtures and generated reports (reproducible via `just load-seed`)
+artifacts/load/
+
 # Editor/IDE
 .vscode/
 .idea/

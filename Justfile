@@ -5,6 +5,10 @@ set positional-arguments
 export DATABASE_URL := env_var_or_default("DATABASE_URL", "postgres://fitcore:fitcore@localhost:5432/fitcore?sslmode=disable")
 export TEST_DATABASE_URL := env_var_or_default("TEST_DATABASE_URL", "postgres://fitcore:fitcore@localhost:5432/fitcore_test?sslmode=disable")
 export TEST_REDIS_URL := env_var_or_default("TEST_REDIS_URL", "redis://localhost:6379/1")
+export LOAD_BASE := env_var_or_default("LOAD_BASE", "http://localhost:8081")
+export LOAD_DATABASE_URL := env_var_or_default("LOAD_DATABASE_URL", "postgres://fitcore:fitcore@localhost:5433/fitcore?sslmode=disable")
+export LOAD_ADMIN := env_var_or_default("LOAD_ADMIN", "loadadmin@fitcore.load")
+export LOAD_PASSWORD := env_var_or_default("LOAD_PASSWORD", "Password1!")
 
 # Show available recipes
 default:
@@ -124,3 +128,52 @@ smoke email='admin@fitcore.local' password='Password1!':
 # DIR/test-report-<timestamp>.txt (DIR defaults to artifacts).
 report *args:
     @scripts/report-tests.sh {{ args }}
+
+# Start the isolated load-testing stack (deploy/docker-compose.load.yml).
+# NOTE: this project is named fitcore-load and uses its own postgres/redis
+# volumes; it does not touch the dev stack. It publishes postgres on
+# 127.0.0.1:5433 and the API on 127.0.0.1:8081.
+load-up:
+    docker compose -f deploy/docker-compose.load.yml up -d --build
+
+# Stop the load-testing stack (containers removed, volumes kept)
+load-down:
+    docker compose -f deploy/docker-compose.load.yml down
+
+# Remove the load-testing stack and all of its volumes (full reset)
+load-reset:
+    docker compose -f deploy/docker-compose.load.yml down -v
+
+# Apply migrations to the load-test database
+load-migrate:
+    DATABASE_URL='{{ LOAD_DATABASE_URL }}' go run ./cmd/migrate -command up
+
+# Seed the load-test admin account (password read from stdin, never as a flag)
+load-seed-admin email=LOAD_ADMIN password=LOAD_PASSWORD:
+    @printf '%s' '{{ password }}' | DATABASE_URL='{{ LOAD_DATABASE_URL }}' go run ./cmd/set-password -email {{ email }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,memberships:create,memberships:update,packages:read,packages:create,packages:update,classes:read,classes:create,classes:update,classes:delete,bookings:read,bookings:create,bookings:update,attendance:read,attendance:create,attendance:update,billing:read,billing:create,billing:update,staff:read,staff:create,staff:update,trainers:read,trainers:create,trainers:update'
+
+# Seed the load fixture: 5 branches x 300 members, packages, classes and
+# memberships through the API. Requires load-up + load-migrate + load-seed-admin.
+load-seed capacity='30':
+    @cd scripts/load && go run . -mode seed -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -capacity {{ capacity }} -out ../../artifacts/load
+
+# Warm the pooled connections and caches before measured scenarios
+load-warmup:
+    @cd scripts/load && go run . -mode warmup -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -out ../../artifacts/load
+
+# Validate the SLO (default: p95 < 400ms, err < 0.5%, mixed realistic mix)
+load-slo rate='150' duration='5m':
+    @cd scripts/load && go run . -mode slo -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -rate {{ rate }} -duration {{ duration }} -out ../../artifacts/load
+
+# Ramp from 5 to 400 RPS in steps to find the saturation point
+load-break:
+    @cd scripts/load && go run . -mode ramp -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -out ../../artifacts/load
+
+# Prove the concurrency invariants (booking capacity exactly-N, check-in race,
+# invoice pay race) under contention
+load-correctness capacity='30':
+    @cd scripts/load && go run . -mode correctness -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -capacity {{ capacity }} -out ../../artifacts/load
+
+# Long soak: SLO mix in 4 consecutive windows watching latency drift + memory
+load-soak rate='100' duration='45m':
+    @cd scripts/load && go run . -mode soak -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -rate {{ rate }} -duration {{ duration }} -out ../../artifacts/load
