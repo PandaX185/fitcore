@@ -23,11 +23,12 @@ const (
 // and expired entries are swept opportunistically so the map cannot grow
 // without bound.
 type RateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	buckets map[string]*rateBucket
-	now     func() time.Time
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+	buckets  map[string]*rateBucket
+	disabled bool
+	now      func() time.Time
 }
 
 type rateBucket struct {
@@ -51,8 +52,13 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 }
 
 // NewAuthRateLimiter builds the limiter guarding the /auth/* endpoints.
-func NewAuthRateLimiter() *RateLimiter {
-	return NewRateLimiter(authRateLimit, authRateWindow)
+// disabled short-circuits the limiter entirely; only the isolated load-test
+// stack enables it, so load phases measuring the raw ceiling are not throttled
+// by the same source IP.
+func NewAuthRateLimiter(disabled bool) *RateLimiter {
+	l := NewRateLimiter(authRateLimit, authRateWindow)
+	l.disabled = disabled
+	return l
 }
 
 // Gin returns middleware that rate-limits only the credential-bearing auth
@@ -60,6 +66,10 @@ func NewAuthRateLimiter() *RateLimiter {
 // through untouched.
 func (l *RateLimiter) Gin() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if l.disabled {
+			c.Next()
+			return
+		}
 		path := c.Request.URL.Path
 		if path != "/auth/login" && path != "/auth/refresh" {
 			c.Next()
@@ -69,7 +79,7 @@ func (l *RateLimiter) Gin() gin.HandlerFunc {
 		retryAfter, ok := l.allow(ip)
 		if !ok {
 			c.Header("Retry-After", itoaSeconds(retryAfter))
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": gin.H{"message": "rate limit exceeded", "code": "rate_limited"}})
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate_limited", "code": "rate_limited"})
 			return
 		}
 		c.Next()

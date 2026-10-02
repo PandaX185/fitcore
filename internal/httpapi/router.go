@@ -26,6 +26,9 @@ type Deps struct {
 	Auth *auth.Service
 	// Revocations rejects compromised/rotated access-token ids.
 	Revocations auth.RevocationStore
+	// RateLimitDisabled disables the auth-endpoint rate limiter for isolated
+	// load-testing; production deployments must leave it false.
+	RateLimitDisabled bool
 }
 
 // New builds the Gin engine. Module routes are mounted via the generated
@@ -53,7 +56,7 @@ func New(deps Deps) *gin.Engine {
 	r.Use(middleware.RequestID())
 	r.Use(middleware.RequestLog(deps.Logger))
 	r.Use(middleware.Metrics(deps.Metrics))
-	r.Use(middleware.NewAuthRateLimiter().Gin())
+	r.Use(middleware.NewAuthRateLimiter(deps.RateLimitDisabled).Gin())
 	r.Use(middleware.NewAuthGuard(deps.Auth, deps.Revocations, middleware.DefaultRegistry(), deps.Logger).Gin())
 
 	r.GET("/healthz", healthz)

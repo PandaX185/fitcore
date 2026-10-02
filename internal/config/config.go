@@ -26,6 +26,10 @@ type Config struct {
 
 	MaxOpenConns int
 	MaxIdleConns int
+
+	// RateLimitDisabled disables the auth-endpoint rate limiter. Only the
+	// isolated load-test stack sets this; production compose must never.
+	RateLimitDisabled bool
 }
 
 // Load reads configuration from the environment. DATABASE_URL, TOKEN_SECRET
@@ -51,6 +55,8 @@ func Load() (Config, error) {
 		// connection, so the app pool must never exceed the pooler.
 		MaxOpenConns: parseInt(getenv("DB_MAX_OPEN_CONNS", "15"), 15),
 		MaxIdleConns: parseInt(getenv("DB_MAX_IDLE_CONNS", "5"), 5),
+
+		RateLimitDisabled: parseBool(getenv("RATE_LIMIT_DISABLED", "false")),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -87,6 +93,14 @@ func parseInt(s string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func parseBool(s string) bool {
+	b, err := strconv.ParseBool(strings.TrimSpace(s))
+	if err != nil {
+		return false
+	}
+	return b
 }
 
 func parseLogLevel(s string) slog.Level {

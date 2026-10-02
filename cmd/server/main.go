@@ -63,11 +63,12 @@ func run() error {
 
 	metrics := telemetry.New()
 	router := httpapi.New(httpapi.Deps{
-		Logger:      log,
-		Metrics:     metrics,
-		DB:          db,
-		Auth:        authSvc,
-		Revocations: revocations,
+		Logger:            log,
+		Metrics:           metrics,
+		DB:                db,
+		Auth:              authSvc,
+		Revocations:       revocations,
+		RateLimitDisabled: cfg.RateLimitDisabled,
 	})
 
 	srv := &http.Server{
