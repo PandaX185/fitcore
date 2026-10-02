@@ -2,7 +2,10 @@ module fitcoreload
 
 go 1.27.0
 
-require github.com/tsenart/vegeta/v12 v12.11.1
+require (
+	github.com/lib/pq v1.10.9
+	github.com/tsenart/vegeta/v12 v12.11.1
+)
 
 require (
 	github.com/influxdata/tdigest v0.0.1 // indirect

@@ -24,10 +24,13 @@ is untouched.
 the auth rate limiter (production uses the Redis-backed limiter; see
 `docs/PROD.md`).
 
-Fixture (~1,700 entities): 5 branches × 300 members = 1,500 members, 1,500
-memberships, 200 classes, packages, all created through the public API with
-**capacity 30** per class. An admin (`loadadmin@fitcore.load`, password read
-from stdin, never as a flag) is seeded with every permission.
+Fixture (~108k entities): 100 branches × 500 members = 50,000 members, 8,000
+classes (80/branch, class `0` is each branch's contention target at your
+capacity), 4 packages, 50,000 memberships (1:1 with members). Seeded by default
+through batched postgres INSERTs (`just load-seed`, ~3s); pass `api` to create
+it through the public API instead (validates the API path, ~100k requests, much
+slower). An admin (`loadadmin@fitcore.load`, password read from stdin, never as
+a flag) is seeded with every permission.
 
 ## Running it
 

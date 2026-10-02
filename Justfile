@@ -156,10 +156,12 @@ load-migrate:
 load-seed-admin email=LOAD_ADMIN password=LOAD_PASSWORD:
     @printf '%s' '{{ password }}' | DATABASE_URL='{{ LOAD_DATABASE_URL }}' go run ./cmd/set-password -email {{ email }} -perms 'branches:read,branches:create,branches:update,members:read,members:create,members:update,members:delete,memberships:read,memberships:create,memberships:update,packages:read,packages:create,packages:update,classes:read,classes:create,classes:update,classes:delete,bookings:read,bookings:create,bookings:update,attendance:read,attendance:create,attendance:update,billing:read,billing:create,billing:update,staff:read,staff:create,staff:update,trainers:read,trainers:create,trainers:update'
 
-# Seed the load fixture: 5 branches x 300 members, packages, classes and
-# memberships through the API. Requires load-up + load-migrate + load-seed-admin.
-load-seed capacity='30':
-    @cd scripts/load && go run . -mode seed -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -capacity {{ capacity }} -out ../../artifacts/load
+# Seed the load fixture through batched postgres inserts (default, fast): 100
+# branches x 500 members, packages, classes and memberships. Pass `api` to
+# create the fixture through the HTTP API instead (much slower, validates the
+# API path). Requires load-up + load-migrate.
+load-seed capacity='30' via='db':
+    @cd scripts/load && go run . -mode seed -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -capacity {{ capacity }} -via {{ via }} -seed-db '{{ LOAD_DATABASE_URL }}' -out ../../artifacts/load
 
 # Warm the pooled connections and caches before measured scenarios
 load-warmup:
@@ -169,7 +171,7 @@ load-warmup:
 load-slo rate='150' duration='5m':
     @cd scripts/load && go run . -mode slo -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -rate {{ rate }} -duration {{ duration }} -out ../../artifacts/load
 
-# Ramp from 5 to 400 RPS in steps to find the saturation point
+# Ramp up to find the saturation point
 load-break:
     @cd scripts/load && go run . -mode ramp -base '{{ LOAD_BASE }}' -admin '{{ LOAD_ADMIN }}' -password '{{ LOAD_PASSWORD }}' -out ../../artifacts/load
 

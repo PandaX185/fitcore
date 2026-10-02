@@ -8,9 +8,9 @@ import (
 
 const (
 	seedBranches   = 100
-	seedMembers    = 500 
+	seedMembers    = 500
 	seedPackages   = 4
-	seedClasses    = 80 
+	seedClasses    = 80
 	seedConcurrent = 80
 )
 
@@ -39,6 +39,13 @@ func (f *fixture) capacity(classID string) int {
 // seed creates the deterministic fixture the load phases draw from. It is
 // idempotent per fresh load DB only; run it once after `load-migrate`.
 func seed(cfg config) error {
+	if cfg.seedVia == "db" {
+		if cfg.seedDB == "" {
+			return fmt.Errorf("seed via db requires -seed-db (postgres DSN); run through `just load-seed`")
+		}
+		return seedDB(cfg, cfg.seedDB)
+	}
+
 	c := newClient(cfg.base)
 	if err := c.login(cfg.admin, cfg.password); err != nil {
 		return err

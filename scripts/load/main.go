@@ -30,6 +30,8 @@ type config struct {
 	out          string
 	thresholdP95 time.Duration
 	maxErrRate   float64
+	seedVia      string
+	seedDB       string
 }
 
 func main() {
@@ -48,6 +50,8 @@ func parseFlags() config {
 	flag.IntVar(&cfg.rate, "rate", 150, "target requests/second for slo/soak modes")
 	flag.DurationVar(&cfg.duration, "duration", 0, "scenario duration (slo/soak need it; ramp uses fixed per-step)")
 	flag.IntVar(&cfg.capacity, "capacity", 30, "contention-class capacity for correctness mode")
+	flag.StringVar(&cfg.seedVia, "via", "db", "seed path: db (batched postgres inserts) or api (HTTP)")
+	flag.StringVar(&cfg.seedDB, "seed-db", "", "postgres DSN used by -via db (the load stack's 5433 URL)")
 	flag.StringVar(&cfg.out, "out", "artifacts/load", "report output directory")
 	flag.DurationVar(&cfg.thresholdP95, "slo-p95", 400*time.Millisecond, "SLO max p95 latency")
 	flag.Float64Var(&cfg.maxErrRate, "slo-err", 0.005, "SLO max server-error share (5xx + transport)")
