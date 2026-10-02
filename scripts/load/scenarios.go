@@ -272,12 +272,12 @@ func runRamp(cfg config) error {
 		steps []int
 		make  func() vegeta.Targeter
 	}{
-		{"login", []int{5, 10, 20, 40, 60, 80, 100}, func() vegeta.Targeter { return loginTarget(cfg.base, cfg.admin, cfg.password) }},
-		{"read-member", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200}, func() vegeta.Targeter { return readMemberTarget(fx, cfg.base, hdr) }},
-		{"list-classes", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200}, func() vegeta.Targeter { return listClassesTarget(fx, cfg.base, hdr) }},
-		{"check-in", []int{20, 50, 100, 200, 300, 400, 600, 800}, func() vegeta.Targeter { return checkInTarget(fx, cfg.base, hdr) }},
-		{"create-booking", []int{20, 50, 100, 200, 300, 400, 600, 800}, func() vegeta.Targeter { return createBookingTarget(fx, cfg.base, hdr) }},
-		{"invoices-create", []int{20, 50, 100, 200, 300, 400, 600}, func() vegeta.Targeter { return createInvoiceTarget(fx, cfg.base, hdr) }},
+		{"login", []int{5, 10, 20, 40, 60, 80, 100, 125, 150, 200, 250, 300}, func() vegeta.Targeter { return loginTarget(cfg.base, cfg.admin, cfg.password) }},
+		{"read-member", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200, 1600, 2000, 3000, 5000, 10000}, func() vegeta.Targeter { return readMemberTarget(fx, cfg.base, hdr) }},
+		{"list-classes", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200, 1600, 2000, 3000, 5000, 10000}, func() vegeta.Targeter { return listClassesTarget(fx, cfg.base, hdr) }},
+		{"check-in", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200, 1600, 2000, 3000}, func() vegeta.Targeter { return checkInTarget(fx, cfg.base, hdr) }},
+		{"create-booking", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200, 1600, 2000, 3000}, func() vegeta.Targeter { return createBookingTarget(fx, cfg.base, hdr) }},
+		{"invoices-create", []int{20, 50, 100, 200, 300, 400, 600, 800, 1200, 1600, 2000, 3000}, func() vegeta.Targeter { return createInvoiceTarget(fx, cfg.base, hdr) }},
 	}
 
 	var all []*report
