@@ -1,5 +1,3 @@
-# FitCore production stack — single-VPS deployment with Compose.
-#
 # Deployment notes (full runbook: docs/PROD.md)
 #   1. cp deploy/.env.prod.example .env  and fill required secrets
 #      (POSTGRES_PASSWORD, TOKEN_SECRET, FITCORE_DOMAIN, CADDY_EMAIL,
