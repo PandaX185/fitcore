@@ -147,10 +147,12 @@ just migrate-version
 
 ## Configuration
 
-All configuration is read from the environment — see `.env.example` and
-`internal/config/config.go` (the source of truth for names and defaults).
-`DATABASE_URL` and `TOKEN_SECRET` are required (the server fails closed
-without them); everything else has development defaults.
+All configuration is read from the environment — see `.env.example`,
+`deploy/.env.prod.example`, and `internal/config/config.go` (the source of
+truth for names and defaults). `DATABASE_URL` and `TOKEN_SECRET` are required
+(the server fails closed without them); everything else has development
+defaults. Production also sets `RATE_LIMIT_REDIS=true` to make auth rate
+limiting shared and Redis-backed (never set `RATE_LIMIT_DISABLED` in prod).
 
 `GET /readyz` checks both postgres and redis. `/metrics` is served on the
 published server port (see `deploy/docker-compose.yml`) — put it behind a
@@ -176,11 +178,38 @@ reverse proxy in production.
 
 - Metrics: `fitcore_http_requests_total`, `fitcore_http_request_duration_seconds`,
   `fitcore_application_errors_total`, `fitcore_database_errors_total`,
-  `fitcore_memberships_purchased_total` (base Go/process collectors included).
-- Alerts: `deploy/prometheus/rules.yml` (5xx rate, p95 latency, DB errors).
+  `fitcore_memberships_purchased_total` (base Go/process collectors included),
+  plus DB-pool saturation (`fitcore_db_pool_open`, `fitcore_db_pool_in_use`).
+- Alerts: `deploy/prometheus/rules.yml` (5xx rate, p95 latency, DB errors,
+  Postgres/PgBouncer down). Prometheus also scrapes redis/postgres/pgbouncer
+  exporters in production (`deploy/prometheus/prometheus.prod.yml`).
 - Dashboards: `deploy/grafana/dashboards/fitcore.json` auto-provisioned.
 - Alertmanager delivers to `ALERTMANAGER_WEBHOOK_URL` when set; otherwise
   alerts stay local (log receiver, visible in the Alertmanager UI).
+
+## Production
+
+A complete single-VPS runbook lives in [docs/PROD.md](docs/PROD.md): topology,
+secrets (`scripts/gen-secrets.sh`, mode-600 `.env`), TLS (Caddy), backup +
+monthly restore drill (`scripts/backup.sh`, `scripts/restore-drill.sh`),
+capacity and sizing. Quick start:
+
+```sh
+cp deploy/.env.prod.example .env
+scripts/gen-secrets.sh .env      # fills POSTGRES_PASSWORD / TOKEN_SECRET / GRAFANA_ADMIN_PASSWORD
+just prod-up && just prod-migrate
+```
+
+CI builds, Trivy-scans and pushes images to GHCR; dependencies are audited
+with govulncheck.
+
+## Load testing
+
+Measured load results (SLO, breakpoints, concurrency correctness, soak) and
+how to reproduce them are in [docs/LOADTEST.md](docs/LOADTEST.md). Headline:
+the production mix holds 150 RPS at p95 ≈ 6 ms with zero 5xx/transport errors;
+Argon2 login is the single bottleneck (≈ 40 RPS); business reads run at
+1,200+ RPS.
 
 ## Contributing
 
