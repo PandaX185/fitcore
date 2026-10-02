@@ -88,7 +88,7 @@ jobs:
       - name: Build migrate image
         run: docker build -f deploy/Dockerfile.migrate -t fitcore-migrate:ci .
       - name: Scan server image (Trivy)
-        uses: aquasecurity/trivy-action@v0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: fitcore:ci
           severity: CRITICAL,HIGH
