@@ -3,7 +3,7 @@
 #   check-in, check-out, get, list-by-member, and the conflict/missing cases.
 #
 # Expectations (from api/openapi.yaml + attendance service rules):
-#   POST /attendance/check-in        201 / 409 (already open) / 404 (no member / no membership)
+#   POST /attendance/check-in        201 / 409 (already open, no active membership) / 404 (no member)
 #   POST /attendance/check-out       200 / 404 (no open record)
 #   GET  /attendance/{id}            200 / 400 / 404
 #   GET  /members/{id}/attendance    200
@@ -82,9 +82,9 @@ print(json.dumps({"memberId": sys.argv[1]}))' "$MB")" \
         -H "Authorization: Bearer $ACCESS_TOKEN"
 fi
 
-# 6. A member without an active membership cannot check in (404 here).
+# 6. A member without an active membership cannot check in (409, state conflict).
 if [[ -n "$MB_NO" && -n "$BR_ID" ]]; then
-    req POST /attendance/check-in 404 -n 'check-in without an active membership rejected' "$(python3 -c 'import json,sys
+    req POST /attendance/check-in 409 -n 'check-in without an active membership rejected' "$(python3 -c 'import json,sys
 print(json.dumps({"memberId": sys.argv[1], "branchId": sys.argv[2]}))' "$MB_NO" "$BR_ID")" \
         -H "Authorization: Bearer $ACCESS_TOKEN"
 fi
