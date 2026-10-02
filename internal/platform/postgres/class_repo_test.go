@@ -231,3 +231,24 @@ func TestClassRepositoryUpdateAndDelete(t *testing.T) {
 		t.Fatalf("Delete missing = %v, want ErrNotFound", err)
 	}
 }
+
+func TestClassRepositoryGetForUpdate(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewClassRepository(db)
+	ctx := context.Background()
+
+	if _, err := repo.GetForUpdate(ctx, uuid.New()); !errors.Is(err, classes.ErrNotFound) {
+		t.Fatalf("GetForUpdate missing = %v, want ErrNotFound", err)
+	}
+
+	branchID := createTestBranch(t, db)
+	id := createTestClass(t, db, branchID, 4)
+
+	got, err := repo.GetForUpdate(ctx, id)
+	if err != nil {
+		t.Fatalf("GetForUpdate: %v", err)
+	}
+	if got.ID != id || got.Capacity != 4 {
+		t.Fatalf("GetForUpdate = %+v", got)
+	}
+}

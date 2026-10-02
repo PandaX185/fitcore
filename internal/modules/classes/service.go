@@ -11,17 +11,20 @@ import (
 	"github.com/PandaX185/fitcore/internal/modules/branches"
 	"github.com/PandaX185/fitcore/internal/modules/trainers"
 	"github.com/PandaX185/fitcore/internal/paging"
+	"github.com/PandaX185/fitcore/internal/transact"
 )
 
 // Service implements the class-scheduling business rules on the ports.
 type Service struct {
-	repo     ClassRepository
-	branches BranchReader
-	trainers TrainerReader
+	repo      ClassRepository
+	branches  BranchReader
+	trainers  TrainerReader
+	occupancy ClassOccupancyReader
+	tx        transact.Transactor
 }
 
-func NewService(repo ClassRepository, branches BranchReader, trainers TrainerReader) *Service {
-	return &Service{repo: repo, branches: branches, trainers: trainers}
+func NewService(repo ClassRepository, branches BranchReader, trainers TrainerReader, occupancy ClassOccupancyReader, tx transact.Transactor) *Service {
+	return &Service{repo: repo, branches: branches, trainers: trainers, occupancy: occupancy, tx: tx}
 }
 
 // Get returns the class with the given ID.
@@ -30,6 +33,15 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Class, error) {
 		return nil, ErrInvalidInput
 	}
 	return s.repo.GetByID(ctx, id)
+}
+
+// GetForUpdate returns the class row locked (SELECT ... FOR UPDATE) for the
+// bookings capacity protocol. It satisfies the bookings ClassReader port.
+func (s *Service) GetForUpdate(ctx context.Context, id uuid.UUID) (*Class, error) {
+	if id == uuid.Nil {
+		return nil, ErrInvalidInput
+	}
+	return s.repo.GetForUpdate(ctx, id)
 }
 
 // Create schedules a new class. An optional trainer must exist and belong to
@@ -78,7 +90,9 @@ func (s *Service) Create(ctx context.Context, branchID uuid.UUID, trainerID *uui
 	return c, nil
 }
 
-// Update applies a partial patch and returns the refreshed class.
+// Update applies a partial patch and returns the refreshed class. Shrinking
+// capacity below the live booking count is rejected with ErrInvalidInput
+// (400); the occupancy read and the write run inside one transaction.
 func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Class, error) {
 	if id == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -104,18 +118,49 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Class
 	if patch.Name != nil && strings.TrimSpace(*patch.Name) == "" {
 		return nil, ErrInvalidInput
 	}
-	if err := s.repo.Update(ctx, id, &patch); err != nil {
+	var updated *Class
+	err = s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if patch.Capacity != nil {
+			active, err := s.occupancy.CountActiveByClass(txCtx, id)
+			if err != nil {
+				return err
+			}
+			if *patch.Capacity < active {
+				return ErrInvalidInput
+			}
+		}
+		if err := s.repo.Update(txCtx, id, &patch); err != nil {
+			return err
+		}
+		u, err := s.repo.GetByID(txCtx, id)
+		if err != nil {
+			return err
+		}
+		updated = u
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	return s.repo.GetByID(ctx, id)
+	return updated, nil
 }
 
-// Delete removes the class with the given ID.
+// Delete removes the class with the given ID, refusing with ErrHasBookings
+// (409) while live bookings reference it.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if id == uuid.Nil {
 		return ErrInvalidInput
 	}
-	return s.repo.Delete(ctx, id)
+	return s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		active, err := s.occupancy.CountActiveByClass(txCtx, id)
+		if err != nil {
+			return err
+		}
+		if active > 0 {
+			return ErrHasBookings
+		}
+		return s.repo.Delete(txCtx, id)
+	})
 }
 
 // List returns one page of classes ordered by (starts_at, id),

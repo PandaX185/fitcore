@@ -14,6 +14,9 @@ var (
 	ErrInvalidInput    = errors.New("invalid class input")
 	ErrBranchNotFound  = errors.New("branch not found")
 	ErrTrainerNotFound = errors.New("trainer not found")
+	// ErrHasBookings refuses a delete while live bookings reference the
+	// class; cancel or expire them first.
+	ErrHasBookings = errors.New("class has active bookings")
 )
 
 // Class is a scheduled group class.

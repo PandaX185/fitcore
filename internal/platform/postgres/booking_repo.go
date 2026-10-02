@@ -53,13 +53,22 @@ func (r *BookingRepository) GetByID(ctx context.Context, id uuid.UUID) (*booking
 }
 
 func (r *BookingRepository) Cancel(ctx context.Context, b *bookings.Booking) error {
-	return FromContext(ctx, r.db.Gorm()).WithContext(ctx).
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Model(&classBookingRow{}).
-		Where("id = ?", b.ID).
+		Where("id = ? AND status = ?", b.ID, bookings.StatusBooked).
 		Updates(map[string]any{
 			"status":       string(b.Status),
 			"cancelled_at": b.CancelledAt,
-		}).Error
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	// Zero rows means the booking was already cancelled (or never existed);
+	// the service re-reads to tell the two apart.
+	if res.RowsAffected == 0 {
+		return bookings.ErrNotFound
+	}
+	return nil
 }
 
 // ListByClass returns one class's bookings ordered by (created_at, id),

@@ -46,6 +46,41 @@ func (f fakeRepo) List(ctx context.Context, q *ListQuery) ([]*Member, error) {
 	return f.list(ctx, q)
 }
 
+// fakeCheckers backs the delete-guard ports with programmable probes; the
+// zero value reports no dependents.
+type fakeCheckers struct {
+	hasActive  func(ctx context.Context, memberID uuid.UUID) (bool, error)
+	hasPending func(ctx context.Context, memberID uuid.UUID) (bool, error)
+	hasOpen    func(ctx context.Context, memberID uuid.UUID) (bool, error)
+}
+
+func (f fakeCheckers) HasActiveByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
+	if f.hasActive == nil {
+		return false, nil
+	}
+	return f.hasActive(ctx, memberID)
+}
+
+func (f fakeCheckers) HasPendingByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
+	if f.hasPending == nil {
+		return false, nil
+	}
+	return f.hasPending(ctx, memberID)
+}
+
+func (f fakeCheckers) HasOpenByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
+	if f.hasOpen == nil {
+		return false, nil
+	}
+	return f.hasOpen(ctx, memberID)
+}
+
+type stubTx struct{}
+
+func (stubTx) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
 func TestServiceGet(t *testing.T) {
 	id := uuid.New()
 	sentinel := &Member{ID: id}
@@ -56,7 +91,7 @@ func TestServiceGet(t *testing.T) {
 			}
 			return sentinel, nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 
 	got, err := svc.Get(context.Background(), id)
 	if err != nil {
@@ -68,7 +103,7 @@ func TestServiceGet(t *testing.T) {
 }
 
 func TestServiceGetNilID(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Get(context.Background(), uuid.Nil); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Get nil id = %v, want ErrInvalidInput", err)
 	}
@@ -79,7 +114,7 @@ func TestServiceGetNotFound(t *testing.T) {
 		getByID: func(context.Context, uuid.UUID) (*Member, error) {
 			return nil, ErrNotFound
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Get(context.Background(), uuid.New()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get missing = %v, want ErrNotFound", err)
 	}
@@ -93,7 +128,7 @@ func TestServiceCreate(t *testing.T) {
 			created = m
 			return nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 
 	got, err := svc.Create(context.Background(), branchID, "Ada", "ada@example.com", "123")
 	if err != nil {
@@ -128,7 +163,7 @@ func TestServiceCreateInvalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(fakeRepo{})
+			svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 			_, err := svc.Create(context.Background(), tt.branchID, tt.member, tt.email, "")
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("Create = %v, want ErrInvalidInput", err)
@@ -145,7 +180,7 @@ func TestServiceCreateNormalizesEmail(t *testing.T) {
 			created = m
 			return nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Create(context.Background(), branchID, "Ada", "  Ada@Example.COM  ", ""); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -159,7 +194,7 @@ func TestServiceCreateDuplicate(t *testing.T) {
 		create: func(context.Context, *Member) error {
 			return ErrDuplicateEmail
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	_, err := svc.Create(context.Background(), uuid.New(), "Ada", "ada@example.com", "")
 	if !errors.Is(err, ErrDuplicateEmail) {
 		t.Fatalf("Create dup = %v, want ErrDuplicateEmail", err)
@@ -181,7 +216,7 @@ func TestServiceUpdate(t *testing.T) {
 		getByID: func(ctx context.Context, id uuid.UUID) (*Member, error) {
 			return &Member{ID: id, Status: StatusSuspended}, nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	s := StatusSuspended
 	got, err := svc.Update(context.Background(), id, Patch{Status: &s})
 	if err != nil {
@@ -206,7 +241,7 @@ func TestServiceUpdateInvalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(fakeRepo{})
+			svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 			_, err := svc.Update(context.Background(), tt.id, tt.patch)
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("Update = %v, want ErrInvalidInput", err)
@@ -220,7 +255,7 @@ func TestServiceUpdateDuplicate(t *testing.T) {
 		update: func(context.Context, uuid.UUID, *Patch) error {
 			return ErrDuplicateEmail
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	_, err := svc.Update(context.Background(), uuid.New(), Patch{})
 	if !errors.Is(err, ErrDuplicateEmail) {
 		t.Fatalf("Update dup = %v, want ErrDuplicateEmail", err)
@@ -236,14 +271,14 @@ func TestServiceDelete(t *testing.T) {
 			}
 			return nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if err := svc.Delete(context.Background(), id); err != nil {
 		t.Fatalf("Delete: unexpected error %v", err)
 	}
 }
 
 func TestServiceDeleteNilID(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if err := svc.Delete(context.Background(), uuid.Nil); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Delete nil id = %v, want ErrInvalidInput", err)
 	}
@@ -254,7 +289,7 @@ func TestServiceDeleteNotFound(t *testing.T) {
 		delete: func(context.Context, uuid.UUID) error {
 			return ErrNotFound
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if err := svc.Delete(context.Background(), uuid.New()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete missing = %v, want ErrNotFound", err)
 	}
@@ -275,7 +310,7 @@ func TestServiceListFirstPage(t *testing.T) {
 			}
 			return items, nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 
 	res, err := svc.List(context.Background(), ListParams{})
 	if err != nil {
@@ -294,7 +329,7 @@ func TestServiceListLastPage(t *testing.T) {
 		list: func(context.Context, *ListQuery) ([]*Member, error) {
 			return []*Member{{ID: uuid.New(), Name: "Only"}}, nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 
 	res, err := svc.List(context.Background(), ListParams{Limit: 20})
 	if err != nil {
@@ -325,7 +360,7 @@ func TestServiceListClampsLimit(t *testing.T) {
 					}
 					return nil, nil
 				},
-			})
+			}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 			if _, err := svc.List(context.Background(), ListParams{Limit: tt.in}); err != nil {
 				t.Fatalf("List: unexpected error %v", err)
 			}
@@ -348,7 +383,7 @@ func TestServiceListCursorRoundTrip(t *testing.T) {
 			}
 			return nil, nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 
 	if _, err := svc.List(context.Background(), ListParams{Cursor: cursor}); err != nil {
 		t.Fatalf("List: unexpected error %v", err)
@@ -364,7 +399,7 @@ func TestServiceListRejectsBadCursor(t *testing.T) {
 					t.Fatal("repo must not be called for a bad cursor")
 					return nil, nil
 				},
-			})
+			}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 			_, err := svc.List(context.Background(), ListParams{Cursor: cur})
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("List error = %v, want ErrInvalidInput", err)
@@ -377,4 +412,61 @@ func strPtr(s string) *string { return &s }
 func statusPtr(s string) *Status {
 	v := Status(s)
 	return &v
+}
+
+func TestServiceDeleteGuarded(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		checker fakeCheckers
+	}{
+		{"active membership", fakeCheckers{hasActive: func(context.Context, uuid.UUID) (bool, error) { return true, nil }}},
+		{"pending invoice", fakeCheckers{hasPending: func(context.Context, uuid.UUID) (bool, error) { return true, nil }}},
+		{"open visit", fakeCheckers{hasOpen: func(context.Context, uuid.UUID) (bool, error) { return true, nil }}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var deleted bool
+			// Each checker position gets its own probe so a hit in one
+			// position does not leak into the others.
+			active := fakeCheckers{hasActive: tt.checker.hasActive}
+			pending := fakeCheckers{hasPending: tt.checker.hasPending}
+			open := fakeCheckers{hasOpen: tt.checker.hasOpen}
+			svc := NewService(fakeRepo{
+				delete: func(context.Context, uuid.UUID) error {
+					deleted = true
+					return nil
+				},
+			}, active, pending, open, stubTx{})
+			if err := svc.Delete(context.Background(), uuid.New()); !errors.Is(err, ErrHasDependents) {
+				t.Fatalf("Delete = %v, want ErrHasDependents", err)
+			}
+			if deleted {
+				t.Fatal("repo.Delete called despite dependents")
+			}
+		})
+	}
+}
+
+func TestServiceDeleteClean(t *testing.T) {
+	var deleted bool
+	svc := NewService(fakeRepo{
+		delete: func(context.Context, uuid.UUID) error {
+			deleted = true
+			return nil
+		},
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
+	if err := svc.Delete(context.Background(), uuid.New()); err != nil {
+		t.Fatalf("Delete clean: %v", err)
+	}
+	if !deleted {
+		t.Fatal("repo.Delete not called for a member without dependents")
+	}
+}
+
+func TestServiceDeletePropagatesCheckerErrors(t *testing.T) {
+	svc := NewService(fakeRepo{}, fakeCheckers{
+		hasActive: func(context.Context, uuid.UUID) (bool, error) { return false, errSentinel },
+	}, fakeCheckers{}, fakeCheckers{}, stubTx{})
+	if err := svc.Delete(context.Background(), uuid.New()); !errors.Is(err, errSentinel) {
+		t.Fatalf("Delete = %v, want checker error", err)
+	}
 }

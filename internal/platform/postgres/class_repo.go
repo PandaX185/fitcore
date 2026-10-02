@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/PandaX185/fitcore/internal/modules/classes"
 )
@@ -42,6 +43,23 @@ func (r *ClassRepository) Create(ctx context.Context, c *classes.Class) error {
 func (r *ClassRepository) GetByID(ctx context.Context, id uuid.UUID) (*classes.Class, error) {
 	var row classRow
 	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).First(&row, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, classes.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row.toClass(), nil
+}
+
+// GetForUpdate returns the class row locked (SELECT ... FOR UPDATE) for the
+// bookings capacity protocol. Call it inside a transaction; the lock is held
+// until the transaction commits or rolls back.
+func (r *ClassRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (*classes.Class, error) {
+	var row classRow
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&row, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, classes.ErrNotFound
 	}

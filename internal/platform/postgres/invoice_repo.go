@@ -79,23 +79,32 @@ func (r *InvoiceRepository) ListByMember(ctx context.Context, q *billing.MemberL
 }
 
 // Update applies a partial patch. paid_on is derived from a transition to the
-// paid status and cleared when leaving it.
+// paid status and cleared when leaving it. The paid transition is a single
+// conditional write (WHERE id AND status IN ('pending','failed')) so
+// concurrent payers serialize: the loser updates zero rows and gets
+// ErrNotFound, letting the service tell a missing invoice from a lost race.
+// One timestamp backs both paid_on and updated_at.
 func (r *InvoiceRepository) Update(ctx context.Context, id uuid.UUID, patch *billing.Patch) error {
-	sets := map[string]any{"updated_at": time.Now().UTC()}
+	now := time.Now().UTC()
+	sets := map[string]any{"updated_at": now}
+	db := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&invoiceRow{})
 	if patch.Status != nil {
 		sets["status"] = string(*patch.Status)
-		now := time.Now().UTC()
 		if *patch.Status == billing.StatusPaid {
 			sets["paid_on"] = now
+			db = db.Where("id = ? AND status IN ?", id, []string{string(billing.StatusPending), string(billing.StatusFailed)})
 		} else {
 			sets["paid_on"] = nil
+			db = db.Where("id = ?", id)
 		}
+	} else {
+		db = db.Where("id = ?", id)
 	}
 	if patch.DueAt != nil {
 		sets["due_at"] = *patch.DueAt
 	}
 
-	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).Model(&invoiceRow{}).Where("id = ?", id).Updates(sets)
+	res := db.Updates(sets)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -103,6 +112,17 @@ func (r *InvoiceRepository) Update(ctx context.Context, id uuid.UUID, patch *bil
 		return billing.ErrNotFound
 	}
 	return nil
+}
+
+// HasPendingByMember reports whether the member owes an invoice still in
+// the pending status.
+func (r *InvoiceRepository) HasPendingByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
+	var count int64
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
+		Model(&invoiceRow{}).
+		Where("member_id = ? AND status = ?", memberID, string(billing.StatusPending)).
+		Count(&count).Error
+	return count > 0, err
 }
 
 func toInvoiceRow(inv *billing.Invoice) *invoiceRow {

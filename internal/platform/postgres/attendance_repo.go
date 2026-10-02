@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/PandaX185/fitcore/internal/modules/attendance"
 )
@@ -86,6 +87,37 @@ func (r *AttendanceRepository) FindOpenByMember(ctx context.Context, memberID uu
 		return nil, err
 	}
 	return row.toAttendance(), nil
+}
+
+// FindOpenByMemberForUpdate behaves like FindOpenByMember but locks the
+// open row (SELECT ... FOR UPDATE) for the check-in protocol. Call it
+// inside a transaction; a missing row still maps to ErrNotFound.
+func (r *AttendanceRepository) FindOpenByMemberForUpdate(ctx context.Context, memberID uuid.UUID) (*attendance.Attendance, error) {
+	var row attendanceRow
+	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("member_id = ? AND checked_out_at IS NULL", memberID).
+		Order("checked_in_at DESC, id").First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, attendance.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row.toAttendance(), nil
+}
+
+// HasOpenByMember reports whether the member holds an open visit, reusing
+// the open-visit lookup: a missing row means no open visit.
+func (r *AttendanceRepository) HasOpenByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
+	_, err := r.FindOpenByMember(ctx, memberID)
+	if errors.Is(err, attendance.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Close stamps checked_out_at only when the record is still open; a zero-row

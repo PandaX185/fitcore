@@ -17,6 +17,10 @@ type AttendanceRepository interface {
 	// FindOpenByMember returns the member's open (checked-in) record, mapping
 	// none to ErrNotFound.
 	FindOpenByMember(ctx context.Context, memberID uuid.UUID) (*Attendance, error)
+	// FindOpenByMemberForUpdate behaves like FindOpenByMember but locks the
+	// open row (SELECT ... FOR UPDATE) so a check-in racing it blocks until
+	// the holder commits; a missing row still maps to ErrNotFound.
+	FindOpenByMemberForUpdate(ctx context.Context, memberID uuid.UUID) (*Attendance, error)
 	// Close stamps checked_out_at on the record; ErrNotFound if already closed.
 	Close(ctx context.Context, a *Attendance) error
 }

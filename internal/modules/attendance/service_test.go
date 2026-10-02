@@ -14,11 +14,12 @@ import (
 )
 
 type fakeRepo struct {
-	create           func(ctx context.Context, a *Attendance) error
-	getByID          func(ctx context.Context, id uuid.UUID) (*Attendance, error)
-	listByMember     func(ctx context.Context, q *MemberListQuery) ([]*Attendance, error)
-	findOpenByMember func(ctx context.Context, memberID uuid.UUID) (*Attendance, error)
-	close            func(ctx context.Context, a *Attendance) error
+	create                    func(ctx context.Context, a *Attendance) error
+	getByID                   func(ctx context.Context, id uuid.UUID) (*Attendance, error)
+	listByMember              func(ctx context.Context, q *MemberListQuery) ([]*Attendance, error)
+	findOpenByMember          func(ctx context.Context, memberID uuid.UUID) (*Attendance, error)
+	findOpenByMemberForUpdate func(ctx context.Context, memberID uuid.UUID) (*Attendance, error)
+	close                     func(ctx context.Context, a *Attendance) error
 }
 
 func (f fakeRepo) Create(ctx context.Context, a *Attendance) error {
@@ -41,6 +42,15 @@ func (f fakeRepo) FindOpenByMember(ctx context.Context, memberID uuid.UUID) (*At
 		return nil, ErrNotFound
 	}
 	return f.findOpenByMember(ctx, memberID)
+}
+
+// FindOpenByMemberForUpdate defaults to the plain lookup so existing tests
+// exercise the same behavior through the locked path.
+func (f fakeRepo) FindOpenByMemberForUpdate(ctx context.Context, memberID uuid.UUID) (*Attendance, error) {
+	if f.findOpenByMemberForUpdate == nil {
+		return f.FindOpenByMember(ctx, memberID)
+	}
+	return f.findOpenByMemberForUpdate(ctx, memberID)
 }
 func (f fakeRepo) Close(ctx context.Context, a *Attendance) error {
 	if f.close == nil {
@@ -65,6 +75,12 @@ func (f fakeMemberships) FindActiveByMemberAndBranch(ctx context.Context, member
 	return f.findActive(ctx, memberID, branchID)
 }
 
+type stubTx struct{}
+
+func (stubTx) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
 func activeMembershipIn(branchID uuid.UUID) fakeMemberships {
 	return fakeMemberships{findActive: func(_ context.Context, memberID, b uuid.UUID) (*memberships.Membership, error) {
 		if b != branchID {
@@ -82,7 +98,7 @@ func TestCheckIn(t *testing.T) {
 		return nil
 	}}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}}, activeMembershipIn(branchID))
+	}}, activeMembershipIn(branchID), stubTx{})
 
 	got, err := svc.CheckIn(context.Background(), memberID, branchID)
 	if err != nil {
@@ -97,7 +113,7 @@ func TestCheckIn(t *testing.T) {
 }
 
 func TestCheckInInvalid(t *testing.T) {
-	svc := NewService(fakeRepo{}, fakeMembers{}, activeMembershipIn(uuid.New()))
+	svc := NewService(fakeRepo{}, fakeMembers{}, activeMembershipIn(uuid.New()), stubTx{})
 	id := uuid.New()
 	if _, err := svc.CheckIn(context.Background(), uuid.Nil, id); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("CheckIn nil member = %v", err)
@@ -110,7 +126,7 @@ func TestCheckInInvalid(t *testing.T) {
 func TestCheckInMemberNotFound(t *testing.T) {
 	svc := NewService(fakeRepo{}, fakeMembers{get: func(context.Context, uuid.UUID) (*members.Member, error) {
 		return nil, members.ErrNotFound
-	}}, activeMembershipIn(uuid.New()))
+	}}, activeMembershipIn(uuid.New()), stubTx{})
 	if _, err := svc.CheckIn(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrMemberNotFound) {
 		t.Fatalf("CheckIn = %v, want ErrMemberNotFound", err)
 	}
@@ -121,7 +137,7 @@ func TestCheckInNoActiveMembership(t *testing.T) {
 		return &members.Member{ID: id}, nil
 	}}, fakeMemberships{findActive: func(context.Context, uuid.UUID, uuid.UUID) (*memberships.Membership, error) {
 		return nil, memberships.ErrNotFound
-	}})
+	}}, stubTx{})
 	if _, err := svc.CheckIn(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrNoActiveMembership) {
 		t.Fatalf("CheckIn = %v, want ErrNoActiveMembership", err)
 	}
@@ -135,7 +151,7 @@ func TestCheckInAlreadyOpen(t *testing.T) {
 		},
 	}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}}, activeMembershipIn(branchID))
+	}}, activeMembershipIn(branchID), stubTx{})
 	if _, err := svc.CheckIn(context.Background(), uuid.New(), branchID); !errors.Is(err, ErrAlreadyCheckedIn) {
 		t.Fatalf("CheckIn = %v, want ErrAlreadyCheckedIn", err)
 	}
@@ -154,7 +170,7 @@ func TestCheckOut(t *testing.T) {
 			}
 			return nil
 		},
-	}, fakeMembers{}, fakeMemberships{})
+	}, fakeMembers{}, fakeMemberships{}, stubTx{})
 	got, err := svc.CheckOut(context.Background(), memberID)
 	if err != nil {
 		t.Fatalf("CheckOut: %v", err)
@@ -165,7 +181,7 @@ func TestCheckOut(t *testing.T) {
 }
 
 func TestCheckOutNoOpenRecord(t *testing.T) {
-	svc := NewService(fakeRepo{}, fakeMembers{}, fakeMemberships{})
+	svc := NewService(fakeRepo{}, fakeMembers{}, fakeMemberships{}, stubTx{})
 	if _, err := svc.CheckOut(context.Background(), uuid.New()); !errors.Is(err, ErrNoOpenRecord) {
 		t.Fatalf("CheckOut = %v, want ErrNoOpenRecord", err)
 	}
@@ -181,7 +197,7 @@ func TestListByMember(t *testing.T) {
 			t.Fatalf("MemberListQuery(%+v)", q)
 		}
 		return []*Attendance{{ID: uuid.New()}}, nil
-	}}, fakeMembers{}, fakeMemberships{})
+	}}, fakeMembers{}, fakeMemberships{}, stubTx{})
 	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
 	if err != nil || len(res.Items) != 1 {
 		t.Fatalf("ListByMember = %v, %v", res, err)
@@ -208,7 +224,7 @@ func TestListByMemberFirstPage(t *testing.T) {
 			}
 			return items, nil
 		},
-	}, fakeMembers{}, fakeMemberships{})
+	}, fakeMembers{}, fakeMemberships{}, stubTx{})
 
 	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
 	if err != nil {
@@ -234,7 +250,7 @@ func TestListByMemberLastPage(t *testing.T) {
 		listByMember: func(context.Context, *MemberListQuery) ([]*Attendance, error) {
 			return []*Attendance{{ID: uuid.New()}}, nil
 		},
-	}, fakeMembers{}, fakeMemberships{})
+	}, fakeMembers{}, fakeMemberships{}, stubTx{})
 
 	res, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: 20})
 	if err != nil {
@@ -265,7 +281,7 @@ func TestListByMemberClampsLimit(t *testing.T) {
 					}
 					return nil, nil
 				},
-			}, fakeMembers{}, fakeMemberships{})
+			}, fakeMembers{}, fakeMemberships{}, stubTx{})
 			if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: tt.in}); err != nil {
 				t.Fatalf("ListByMember: unexpected error %v", err)
 			}
@@ -288,7 +304,7 @@ func TestListByMemberCursorRoundTrip(t *testing.T) {
 			}
 			return nil, nil
 		},
-	}, fakeMembers{}, fakeMemberships{})
+	}, fakeMembers{}, fakeMemberships{}, stubTx{})
 
 	if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cursor}); err != nil {
 		t.Fatalf("ListByMember: unexpected error %v", err)
@@ -303,11 +319,71 @@ func TestListByMemberRejectsBadCursor(t *testing.T) {
 					t.Fatal("repo must not be called for a bad cursor")
 					return nil, nil
 				},
-			}, fakeMembers{}, fakeMemberships{})
+			}, fakeMembers{}, fakeMemberships{}, stubTx{})
 			_, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cur})
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("ListByMember error = %v, want ErrInvalidInput", err)
 			}
 		})
+	}
+}
+
+func TestCheckInUsesLockedOpenRow(t *testing.T) {
+	branchID := uuid.New()
+	// The plain lookup reports no open visit, but the locked lookup finds
+	// one: the service must refuse via the locked path.
+	svc := NewService(fakeRepo{
+		findOpenByMember: func(context.Context, uuid.UUID) (*Attendance, error) {
+			return nil, ErrNotFound
+		},
+		findOpenByMemberForUpdate: func(context.Context, uuid.UUID) (*Attendance, error) {
+			return &Attendance{ID: uuid.New()}, nil
+		},
+	}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
+		return &members.Member{ID: id}, nil
+	}}, activeMembershipIn(branchID), stubTx{})
+	if _, err := svc.CheckIn(context.Background(), uuid.New(), branchID); !errors.Is(err, ErrAlreadyCheckedIn) {
+		t.Fatalf("CheckIn = %v, want ErrAlreadyCheckedIn", err)
+	}
+}
+
+func TestCheckInIgnoresStalePlainLookup(t *testing.T) {
+	branchID := uuid.New()
+	// The locked lookup is authoritative: a stale open row visible only to
+	// the plain lookup must not block check-in.
+	var created *Attendance
+	svc := NewService(fakeRepo{
+		findOpenByMember: func(context.Context, uuid.UUID) (*Attendance, error) {
+			return &Attendance{ID: uuid.New()}, nil
+		},
+		findOpenByMemberForUpdate: func(context.Context, uuid.UUID) (*Attendance, error) {
+			return nil, ErrNotFound
+		},
+		create: func(_ context.Context, a *Attendance) error {
+			created = a
+			return nil
+		},
+	}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
+		return &members.Member{ID: id}, nil
+	}}, activeMembershipIn(branchID), stubTx{})
+	if _, err := svc.CheckIn(context.Background(), uuid.New(), branchID); err != nil {
+		t.Fatalf("CheckIn: %v", err)
+	}
+	if created == nil {
+		t.Fatal("no attendance created")
+	}
+}
+
+func TestCheckInDuplicatePassthrough(t *testing.T) {
+	branchID := uuid.New()
+	svc := NewService(fakeRepo{
+		create: func(context.Context, *Attendance) error {
+			return ErrAlreadyCheckedIn
+		},
+	}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
+		return &members.Member{ID: id}, nil
+	}}, activeMembershipIn(branchID), stubTx{})
+	if _, err := svc.CheckIn(context.Background(), uuid.New(), branchID); !errors.Is(err, ErrAlreadyCheckedIn) {
+		t.Fatalf("CheckIn = %v, want ErrAlreadyCheckedIn", err)
 	}
 }

@@ -13,7 +13,7 @@ var errSentinel = errors.New("repo exploded")
 func TestServiceCreatePropagatesRepoErrors(t *testing.T) {
 	svc := NewService(fakeRepo{
 		create: func(context.Context, *Member) error { return errSentinel },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), "Ada", "a@b.com", ""); !errors.Is(err, errSentinel) {
 		t.Fatalf("Create error = %v, want %v", err, errSentinel)
 	}
@@ -26,7 +26,7 @@ func TestServiceCreateKeepsNameAndPhone(t *testing.T) {
 			created = m
 			return nil
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), "  Ada Lovelace  ", "a@b.com", "+1 555 0100"); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -51,14 +51,14 @@ func TestServiceCreateRequiresAtSignVariants(t *testing.T) {
 	// The domain contract is deliberately light: non-blank and contains '@'.
 	// Strict RFC parsing happens at the API boundary.
 	for _, email := range []string{"no-at-sign", "a", "", "   ", "\t\n"} {
-		svc := NewService(fakeRepo{})
+		svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 		if _, err := svc.Create(context.Background(), branchID, "Ada", email, ""); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("Create(email=%q) = %v, want ErrInvalidInput", email, err)
 		}
 	}
 	// Loose but accepted by design; the stored value is still normalized.
 	for _, email := range []string{"@", "a@", "@b", "a@b@c", "A@B"} {
-		svc := NewService(fakeRepo{})
+		svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 		if _, err := svc.Create(context.Background(), branchID, "Ada", email, ""); err != nil {
 			t.Fatalf("Create(email=%q) = %v, want accepted", email, err)
 		}
@@ -70,7 +70,7 @@ func TestServiceGetPropagatesRepoErrors(t *testing.T) {
 		getByID: func(context.Context, uuid.UUID) (*Member, error) {
 			return nil, errSentinel
 		},
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Get(context.Background(), uuid.New()); !errors.Is(err, errSentinel) {
 		t.Fatalf("Get error = %v, want %v", err, errSentinel)
 	}
@@ -88,7 +88,7 @@ func TestServiceUpdateNormalizesEmail(t *testing.T) {
 			return nil
 		},
 		getByID: func(_ context.Context, id uuid.UUID) (*Member, error) { return &Member{ID: id}, nil },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	email := "  Ada@Example.COM  "
 	if _, err := svc.Update(context.Background(), id, Patch{Email: &email}); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -99,7 +99,7 @@ func TestServiceUpdateNormalizesEmail(t *testing.T) {
 }
 
 func TestServiceUpdateRejectsWhitespaceEmail(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(fakeRepo{}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	for _, email := range []string{"", "   ", "\t\n"} {
 		patch := Patch{Email: &email}
 		if _, err := svc.Update(context.Background(), uuid.New(), patch); !errors.Is(err, ErrInvalidInput) {
@@ -111,7 +111,7 @@ func TestServiceUpdateRejectsWhitespaceEmail(t *testing.T) {
 func TestServiceUpdatePropagatesRepoErrors(t *testing.T) {
 	svc := NewService(fakeRepo{
 		update: func(context.Context, uuid.UUID, *Patch) error { return errSentinel },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Update(context.Background(), uuid.New(), Patch{}); !errors.Is(err, errSentinel) {
 		t.Fatalf("Update error = %v, want %v", err, errSentinel)
 	}
@@ -121,7 +121,7 @@ func TestServiceUpdatePropagatesRefetchErrors(t *testing.T) {
 	svc := NewService(fakeRepo{
 		update:  func(context.Context, uuid.UUID, *Patch) error { return nil },
 		getByID: func(context.Context, uuid.UUID) (*Member, error) { return nil, errSentinel },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.Update(context.Background(), uuid.New(), Patch{}); !errors.Is(err, errSentinel) {
 		t.Fatalf("Update error = %v, want %v", err, errSentinel)
 	}
@@ -130,7 +130,7 @@ func TestServiceUpdatePropagatesRefetchErrors(t *testing.T) {
 func TestServiceDeletePropagatesRepoErrors(t *testing.T) {
 	svc := NewService(fakeRepo{
 		delete: func(context.Context, uuid.UUID) error { return errSentinel },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if err := svc.Delete(context.Background(), uuid.New()); !errors.Is(err, errSentinel) {
 		t.Fatalf("Delete error = %v, want %v", err, errSentinel)
 	}
@@ -139,7 +139,7 @@ func TestServiceDeletePropagatesRepoErrors(t *testing.T) {
 func TestServiceListEmpty(t *testing.T) {
 	svc := NewService(fakeRepo{
 		list: func(context.Context, *ListQuery) ([]*Member, error) { return nil, nil },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	res, err := svc.List(context.Background(), ListParams{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -152,7 +152,7 @@ func TestServiceListEmpty(t *testing.T) {
 func TestServiceListPropagatesRepoErrors(t *testing.T) {
 	svc := NewService(fakeRepo{
 		list: func(context.Context, *ListQuery) ([]*Member, error) { return nil, errSentinel },
-	})
+	}, fakeCheckers{}, fakeCheckers{}, fakeCheckers{}, stubTx{})
 	if _, err := svc.List(context.Background(), ListParams{}); !errors.Is(err, errSentinel) {
 		t.Fatalf("List error = %v, want %v", err, errSentinel)
 	}

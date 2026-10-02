@@ -70,6 +70,18 @@ func existingMembership() fakeMemberships {
 	}}
 }
 
+func membershipOf(memberID uuid.UUID) fakeMemberships {
+	return fakeMemberships{get: func(_ context.Context, id uuid.UUID) (*memberships.Membership, error) {
+		return &memberships.Membership{ID: id, MemberID: memberID}, nil
+	}}
+}
+
+type stubTx struct{}
+
+func (stubTx) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
 func TestCreate(t *testing.T) {
 	memberID, membershipID := uuid.New(), uuid.New()
 	due := time.Now().UTC().Add(7 * 24 * time.Hour)
@@ -77,7 +89,7 @@ func TestCreate(t *testing.T) {
 	svc := NewService(fakeRepo{create: func(_ context.Context, inv *Invoice) error {
 		created = inv
 		return nil
-	}}, existingMember(), existingMembership())
+	}}, existingMember(), membershipOf(memberID), stubTx{})
 
 	got, err := svc.Create(context.Background(), memberID, membershipID, 12500, "  bhd  ", due)
 	if err != nil {
@@ -99,7 +111,7 @@ func TestCreate(t *testing.T) {
 
 func TestCreateInvalid(t *testing.T) {
 	due := time.Now().UTC().Add(7 * 24 * time.Hour)
-	svc := NewService(fakeRepo{}, existingMember(), existingMembership())
+	svc := NewService(fakeRepo{}, existingMember(), existingMembership(), stubTx{})
 	id := uuid.New()
 	tests := []struct {
 		name        string
@@ -130,7 +142,7 @@ func TestCreateInvalid(t *testing.T) {
 func TestCreateMemberNotFound(t *testing.T) {
 	svc := NewService(fakeRepo{}, fakeMembers{get: func(context.Context, uuid.UUID) (*members.Member, error) {
 		return nil, members.ErrNotFound
-	}}, existingMembership())
+	}}, existingMembership(), stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New(), 100, "USD", time.Now().Add(time.Hour)); !errors.Is(err, ErrMemberNotFound) {
 		t.Fatalf("Create = %v, want ErrMemberNotFound", err)
 	}
@@ -139,7 +151,7 @@ func TestCreateMemberNotFound(t *testing.T) {
 func TestCreateMembershipNotFound(t *testing.T) {
 	svc := NewService(fakeRepo{}, existingMember(), fakeMemberships{get: func(context.Context, uuid.UUID) (*memberships.Membership, error) {
 		return nil, memberships.ErrNotFound
-	}})
+	}}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New(), 100, "USD", time.Now().Add(time.Hour)); !errors.Is(err, ErrMembershipNotFound) {
 		t.Fatalf("Create = %v, want ErrMembershipNotFound", err)
 	}
@@ -157,7 +169,7 @@ func TestUpdate(t *testing.T) {
 			patches = append(patches, *patch)
 			return nil
 		},
-	}, existingMember(), existingMembership())
+	}, existingMember(), existingMembership(), stubTx{})
 	if _, err := svc.Update(context.Background(), id, Patch{Status: &paid}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -173,7 +185,7 @@ func TestUpdatePaidCannotRevert(t *testing.T) {
 		getByID: func(_ context.Context, got uuid.UUID) (*Invoice, error) {
 			return &Invoice{ID: got, Status: StatusPaid}, nil
 		},
-	}, existingMember(), existingMembership())
+	}, existingMember(), existingMembership(), stubTx{})
 	if _, err := svc.Update(context.Background(), id, Patch{Status: &pending}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Update paid->pending = %v, want ErrInvalidInput", err)
 	}
@@ -186,7 +198,7 @@ func TestUpdateInvalid(t *testing.T) {
 		getByID: func(context.Context, uuid.UUID) (*Invoice, error) {
 			return &Invoice{Status: StatusPending}, nil
 		},
-	}, existingMember(), existingMembership())
+	}, existingMember(), existingMembership(), stubTx{})
 	if _, err := svc.Update(context.Background(), uuid.Nil, Patch{}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Update nil id = %v", err)
 	}
@@ -205,7 +217,7 @@ func TestListByMember(t *testing.T) {
 			t.Fatalf("MemberListQuery(%+v)", q)
 		}
 		return []*Invoice{{ID: uuid.New()}}, nil
-	}}, existingMember(), existingMembership())
+	}}, existingMember(), existingMembership(), stubTx{})
 	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
 	if err != nil || len(res.Items) != 1 {
 		t.Fatalf("ListByMember = %v, %v", res, err)
@@ -232,7 +244,7 @@ func TestListByMemberFirstPage(t *testing.T) {
 			}
 			return items, nil
 		},
-	}, existingMember(), existingMembership())
+	}, existingMember(), existingMembership(), stubTx{})
 
 	res, err := svc.ListByMember(context.Background(), memberID, MemberListParams{})
 	if err != nil {
@@ -258,7 +270,7 @@ func TestListByMemberLastPage(t *testing.T) {
 		listByMember: func(context.Context, *MemberListQuery) ([]*Invoice, error) {
 			return []*Invoice{{ID: uuid.New()}}, nil
 		},
-	}, existingMember(), existingMembership())
+	}, existingMember(), existingMembership(), stubTx{})
 
 	res, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: 20})
 	if err != nil {
@@ -289,7 +301,7 @@ func TestListByMemberClampsLimit(t *testing.T) {
 					}
 					return nil, nil
 				},
-			}, existingMember(), existingMembership())
+			}, existingMember(), existingMembership(), stubTx{})
 			if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Limit: tt.in}); err != nil {
 				t.Fatalf("ListByMember: unexpected error %v", err)
 			}
@@ -312,7 +324,7 @@ func TestListByMemberCursorRoundTrip(t *testing.T) {
 			}
 			return nil, nil
 		},
-	}, existingMember(), existingMembership())
+	}, existingMember(), existingMembership(), stubTx{})
 
 	if _, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cursor}); err != nil {
 		t.Fatalf("ListByMember: unexpected error %v", err)
@@ -327,11 +339,85 @@ func TestListByMemberRejectsBadCursor(t *testing.T) {
 					t.Fatal("repo must not be called for a bad cursor")
 					return nil, nil
 				},
-			}, existingMember(), existingMembership())
+			}, existingMember(), existingMembership(), stubTx{})
 			_, err := svc.ListByMember(context.Background(), uuid.New(), MemberListParams{Cursor: cur})
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("ListByMember error = %v, want ErrInvalidInput", err)
 			}
 		})
+	}
+}
+
+func TestCreateMembershipMismatch(t *testing.T) {
+	memberID := uuid.New()
+	svc := NewService(fakeRepo{}, existingMember(), fakeMemberships{get: func(_ context.Context, id uuid.UUID) (*memberships.Membership, error) {
+		return &memberships.Membership{ID: id, MemberID: uuid.New()}, nil
+	}}, stubTx{})
+	if _, err := svc.Create(context.Background(), memberID, uuid.New(), 100, "USD", time.Now().Add(time.Hour)); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("Create cross-member = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestCreateDuplicatePassthrough(t *testing.T) {
+	memberID := uuid.New()
+	svc := NewService(fakeRepo{create: func(context.Context, *Invoice) error {
+		return ErrDuplicate
+	}}, existingMember(), membershipOf(memberID), stubTx{})
+	if _, err := svc.Create(context.Background(), memberID, uuid.New(), 100, "USD", time.Now().Add(time.Hour)); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("Create dup terms = %v, want ErrDuplicate", err)
+	}
+}
+
+func TestUpdateVoidIsTerminal(t *testing.T) {
+	for _, to := range []InvoiceStatus{StatusPending, StatusPaid, StatusFailed} {
+		svc := NewService(fakeRepo{
+			getByID: func(context.Context, uuid.UUID) (*Invoice, error) {
+				return &Invoice{Status: StatusVoid}, nil
+			},
+		}, existingMember(), existingMembership(), stubTx{})
+		st := to
+		if _, err := svc.Update(context.Background(), uuid.New(), Patch{Status: &st}); !errors.Is(err, ErrStateConflict) {
+			t.Fatalf("Update void->%s = %v, want ErrStateConflict", to, err)
+		}
+	}
+	// Void-to-void is an idempotent no-op and still succeeds.
+	svc := NewService(fakeRepo{
+		getByID: func(context.Context, uuid.UUID) (*Invoice, error) {
+			return &Invoice{Status: StatusVoid}, nil
+		},
+	}, existingMember(), existingMembership(), stubTx{})
+	void := StatusVoid
+	if _, err := svc.Update(context.Background(), uuid.New(), Patch{Status: &void}); err != nil {
+		t.Fatalf("Update void->void: %v", err)
+	}
+}
+
+func TestUpdatePaidRaceConflict(t *testing.T) {
+	paid := StatusPaid
+	svc := NewService(fakeRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (*Invoice, error) {
+			return &Invoice{ID: id, Status: StatusPaid}, nil
+		},
+		update: func(context.Context, uuid.UUID, *Patch) error {
+			return ErrNotFound
+		},
+	}, existingMember(), existingMembership(), stubTx{})
+	if _, err := svc.Update(context.Background(), uuid.New(), Patch{Status: &paid}); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("Update raced paid = %v, want ErrStateConflict", err)
+	}
+}
+
+func TestUpdatePaidRaceMissing(t *testing.T) {
+	paid := StatusPaid
+	svc := NewService(fakeRepo{
+		getByID: func(context.Context, uuid.UUID) (*Invoice, error) {
+			return nil, ErrNotFound
+		},
+		update: func(context.Context, uuid.UUID, *Patch) error {
+			return ErrNotFound
+		},
+	}, existingMember(), existingMembership(), stubTx{})
+	if _, err := svc.Update(context.Background(), uuid.New(), Patch{Status: &paid}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update missing paid = %v, want ErrNotFound", err)
 	}
 }

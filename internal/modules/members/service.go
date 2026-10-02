@@ -8,15 +8,20 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/PandaX185/fitcore/internal/paging"
+	"github.com/PandaX185/fitcore/internal/transact"
 )
 
 // Service implements the member lifecycle business rules on the repo port.
 type Service struct {
-	repo MemberRepository
+	repo        MemberRepository
+	memberships ActiveMembershipChecker
+	invoices    PendingInvoiceChecker
+	attendance  OpenAttendanceChecker
+	tx          transact.Transactor
 }
 
-func NewService(repo MemberRepository) *Service {
-	return &Service{repo: repo}
+func NewService(repo MemberRepository, memberships ActiveMembershipChecker, invoices PendingInvoiceChecker, attendance OpenAttendanceChecker, tx transact.Transactor) *Service {
+	return &Service{repo: repo, memberships: memberships, invoices: invoices, attendance: attendance, tx: tx}
 }
 
 // Get returns the member with the given ID, mapping a missing row to ErrNotFound.
@@ -77,12 +82,32 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Membe
 	return s.repo.GetByID(ctx, id)
 }
 
-// Delete removes a member by ID, mapping a missing row to ErrNotFound.
+// Delete removes a member by ID, mapping a missing row to ErrNotFound. The
+// delete is guarded: a live membership, a pending invoice, or an open visit
+// refuses with ErrHasDependents (409). The checks and the delete run inside
+// one transaction.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if id == uuid.Nil {
 		return ErrInvalidInput
 	}
-	return s.repo.Delete(ctx, id)
+	return s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if active, err := s.memberships.HasActiveByMember(txCtx, id); err != nil {
+			return err
+		} else if active {
+			return ErrHasDependents
+		}
+		if pending, err := s.invoices.HasPendingByMember(txCtx, id); err != nil {
+			return err
+		} else if pending {
+			return ErrHasDependents
+		}
+		if open, err := s.attendance.HasOpenByMember(txCtx, id); err != nil {
+			return err
+		} else if open {
+			return ErrHasDependents
+		}
+		return s.repo.Delete(txCtx, id)
+	})
 }
 
 // List returns one page of members ordered by (name, id), with an opaque

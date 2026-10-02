@@ -34,16 +34,23 @@ type Handler struct {
 }
 
 func New(log *slog.Logger, metrics *telemetry.Metrics, db *postgres.DB, authSvc authService) *Handler {
+	txm := postgres.NewTransactionManager(db.Gorm())
 	branchSvc := branches.NewService(postgres.NewBranchRepository(db))
-	memberSvc := members.NewService(postgres.NewMemberRepository(db))
+	memberRepo := postgres.NewMemberRepository(db)
+	membershipRepo := postgres.NewMembershipRepository(db)
+	invoiceRepo := postgres.NewInvoiceRepository(db)
+	attendanceRepo := postgres.NewAttendanceRepository(db)
+	classRepo := postgres.NewClassRepository(db)
+	bookingRepo := postgres.NewBookingRepository(db)
+	memberSvc := members.NewService(memberRepo, membershipRepo, invoiceRepo, attendanceRepo, txm)
 	packageSvc := packages.NewService(postgres.NewPackageRepository(db))
-	membershipSvc := memberships.NewService(postgres.NewMembershipRepository(db), packageSvc, memberSvc)
+	membershipSvc := memberships.NewService(membershipRepo, packageSvc, memberSvc, branchSvc, txm)
 	staffSvc := staff.NewService(postgres.NewStaffRepository(db), branchSvc)
 	trainerSvc := trainers.NewService(postgres.NewTrainerRepository(db), branchSvc)
-	classSvc := classes.NewService(postgres.NewClassRepository(db), branchSvc, trainerSvc)
-	bookingSvc := bookings.NewService(postgres.NewBookingRepository(db), classSvc, memberSvc)
-	attendanceSvc := attendance.NewService(postgres.NewAttendanceRepository(db), memberSvc, membershipSvc)
-	billingSvc := billing.NewService(postgres.NewInvoiceRepository(db), memberSvc, membershipSvc)
+	classSvc := classes.NewService(classRepo, branchSvc, trainerSvc, bookingRepo, txm)
+	bookingSvc := bookings.NewService(bookingRepo, classSvc, memberSvc, txm)
+	attendanceSvc := attendance.NewService(attendanceRepo, memberSvc, membershipSvc, txm)
+	billingSvc := billing.NewService(invoiceRepo, memberSvc, membershipSvc, txm)
 
 	return &Handler{
 		authHandler: &authHandler{

@@ -204,3 +204,128 @@ func TestInvoiceRepositoryListByMemberPaginates(t *testing.T) {
 		prev = p
 	}
 }
+
+func TestInvoiceRepositoryDuplicateTerms(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewInvoiceRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+	membershipID := createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusActive)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	due := now.AddDate(0, 0, 7)
+	id := uuid.New()
+	if err := repo.Create(ctx, &billing.Invoice{
+		ID: id, MemberID: memberID, MembershipID: membershipID, AmountCents: 25000, Currency: "BHD",
+		Status: billing.StatusPending, DueAt: due, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cleanupTable(t, db, "invoices", id)
+
+	// Same (membership, amount, due) terms collide on uq_invoices_terms.
+	err := repo.Create(ctx, &billing.Invoice{
+		ID: uuid.New(), MemberID: memberID, MembershipID: membershipID, AmountCents: 25000, Currency: "BHD",
+		Status: billing.StatusPending, DueAt: due, CreatedAt: now, UpdatedAt: now,
+	})
+	if !errors.Is(err, billing.ErrDuplicate) {
+		t.Fatalf("Create duplicate terms = %v, want ErrDuplicate", err)
+	}
+}
+
+func TestInvoiceRepositoryPaidConditional(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewInvoiceRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+	membershipID := createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusActive)
+
+	now := time.Now().UTC()
+	id := uuid.New()
+	if err := repo.Create(ctx, &billing.Invoice{
+		ID: id, MemberID: memberID, MembershipID: membershipID, AmountCents: 100, Currency: "USD",
+		Status: billing.StatusPending, DueAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cleanupTable(t, db, "invoices", id)
+
+	paid := billing.StatusPaid
+	if err := repo.Update(ctx, id, &billing.Patch{Status: &paid}); err != nil {
+		t.Fatalf("Update pending->paid: %v", err)
+	}
+	got, err := repo.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != billing.StatusPaid || got.PaidAt == nil {
+		t.Fatalf("paid = %q/%v, want paid + stamped", got.Status, got.PaidAt)
+	}
+	if !got.PaidAt.Equal(got.UpdatedAt) {
+		t.Fatalf("paid_on = %v, updated_at = %v; want one shared timestamp", got.PaidAt, got.UpdatedAt)
+	}
+
+	// Paying again touches zero rows: the status is no longer pending/failed.
+	if err := repo.Update(ctx, id, &billing.Patch{Status: &paid}); !errors.Is(err, billing.ErrNotFound) {
+		t.Fatalf("Update paid->paid = %v, want ErrNotFound", err)
+	}
+
+	// A failed invoice may still transition to paid.
+	failedID := uuid.New()
+	if err := repo.Create(ctx, &billing.Invoice{
+		ID: failedID, MemberID: memberID, MembershipID: membershipID, AmountCents: 200, Currency: "USD",
+		Status: billing.StatusFailed, DueAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	cleanupTable(t, db, "invoices", failedID)
+	if err := repo.Update(ctx, failedID, &billing.Patch{Status: &paid}); err != nil {
+		t.Fatalf("Update failed->paid: %v", err)
+	}
+}
+
+func TestInvoiceRepositoryHasPendingByMember(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewInvoiceRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+	membershipID := createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusActive)
+
+	has, err := repo.HasPendingByMember(ctx, memberID)
+	if err != nil || has {
+		t.Fatalf("HasPendingByMember empty = %v, %v; want false", has, err)
+	}
+
+	now := time.Now().UTC()
+	id := uuid.New()
+	if err := repo.Create(ctx, &billing.Invoice{
+		ID: id, MemberID: memberID, MembershipID: membershipID, AmountCents: 100, Currency: "USD",
+		Status: billing.StatusPending, DueAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cleanupTable(t, db, "invoices", id)
+
+	has, err = repo.HasPendingByMember(ctx, memberID)
+	if err != nil || !has {
+		t.Fatalf("HasPendingByMember pending = %v, %v; want true", has, err)
+	}
+
+	paid := billing.StatusPaid
+	if err := repo.Update(ctx, id, &billing.Patch{Status: &paid}); err != nil {
+		t.Fatalf("Update paid: %v", err)
+	}
+	has, err = repo.HasPendingByMember(ctx, memberID)
+	if err != nil || has {
+		t.Fatalf("HasPendingByMember paid = %v, %v; want false", has, err)
+	}
+}

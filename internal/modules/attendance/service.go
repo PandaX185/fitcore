@@ -10,6 +10,7 @@ import (
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/memberships"
 	"github.com/PandaX185/fitcore/internal/paging"
+	"github.com/PandaX185/fitcore/internal/transact"
 )
 
 // Service implements the attendance business rules on the ports.
@@ -17,10 +18,11 @@ type Service struct {
 	repo        AttendanceRepository
 	members     MemberReader
 	memberships MembershipReader
+	tx          transact.Transactor
 }
 
-func NewService(repo AttendanceRepository, members MemberReader, memberships MembershipReader) *Service {
-	return &Service{repo: repo, members: members, memberships: memberships}
+func NewService(repo AttendanceRepository, members MemberReader, memberships MembershipReader, tx transact.Transactor) *Service {
+	return &Service{repo: repo, members: members, memberships: memberships, tx: tx}
 }
 
 // Get returns the attendance record with the given ID.
@@ -34,6 +36,12 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Attendance, error) {
 // CheckIn opens a visit for a member at a branch. The member must exist and
 // hold an active membership at that branch; a member cannot hold two open
 // visits.
+//
+// The open-visit lookup and the insert run inside one transaction, locking
+// the open row when one exists (SELECT ... FOR UPDATE) so concurrent
+// check-ins serialize. The residual insert race (both sides see no open
+// row) is still refused by the store's partial unique index, surfacing as
+// ErrAlreadyCheckedIn.
 func (s *Service) CheckIn(ctx context.Context, memberID, branchID uuid.UUID) (*Attendance, error) {
 	if memberID == uuid.Nil || branchID == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -51,21 +59,28 @@ func (s *Service) CheckIn(ctx context.Context, memberID, branchID uuid.UUID) (*A
 		}
 		return nil, err
 	}
-	now := time.Now().UTC()
-	if open, err := s.repo.FindOpenByMember(ctx, memberID); err == nil && open != nil {
-		return nil, ErrAlreadyCheckedIn
-	} else if err != nil && !errors.Is(err, ErrNotFound) {
-		return nil, err
-	}
-	a := &Attendance{
-		ID:           uuid.New(),
-		MemberID:     memberID,
-		BranchID:     branchID,
-		MembershipID: membership.ID,
-		CheckedInAt:  now,
-		CreatedAt:    now,
-	}
-	if err := s.repo.Create(ctx, a); err != nil {
+	var a *Attendance
+	err = s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if open, err := s.repo.FindOpenByMemberForUpdate(txCtx, memberID); err == nil && open != nil {
+			return ErrAlreadyCheckedIn
+		} else if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		now := time.Now().UTC()
+		a = &Attendance{
+			ID:           uuid.New(),
+			MemberID:     memberID,
+			BranchID:     branchID,
+			MembershipID: membership.ID,
+			CheckedInAt:  now,
+			CreatedAt:    now,
+		}
+		if err := s.repo.Create(txCtx, a); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return a, nil

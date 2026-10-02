@@ -12,6 +12,9 @@ var (
 	ErrNotFound       = errors.New("member not found")
 	ErrDuplicateEmail = errors.New("email already in use")
 	ErrInvalidInput   = errors.New("invalid member input")
+	// ErrHasDependents refuses a delete while live memberships, pending
+	// invoices, or an open visit reference the member.
+	ErrHasDependents = errors.New("member has active dependents")
 )
 
 // Status describes the lifecycle state of a member.

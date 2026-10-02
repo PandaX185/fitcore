@@ -272,3 +272,76 @@ func TestMembershipRepositoryListByMemberPaginatesTies(t *testing.T) {
 		t.Fatalf("page 2 = %+v, want [%v]", page2, second)
 	}
 }
+
+func TestMembershipRepositoryUpdateStatus(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewMembershipRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+	id := createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusActive)
+
+	frozen := memberships.StatusFrozen
+	if err := repo.UpdateStatus(ctx, id, memberships.StatusActive, &memberships.Patch{Status: &frozen}); err != nil {
+		t.Fatalf("UpdateStatus active->frozen: %v", err)
+	}
+
+	// The observed status moved on: conditioning on the stale status now
+	// touches zero rows.
+	if err := repo.UpdateStatus(ctx, id, memberships.StatusActive, &memberships.Patch{Status: &frozen}); !errors.Is(err, memberships.ErrNotFound) {
+		t.Fatalf("UpdateStatus stale expected = %v, want ErrNotFound", err)
+	}
+
+	active := memberships.StatusActive
+	if err := repo.UpdateStatus(ctx, id, memberships.StatusFrozen, &memberships.Patch{Status: &active}); err != nil {
+		t.Fatalf("UpdateStatus frozen->active: %v", err)
+	}
+	got, err := repo.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != memberships.StatusActive {
+		t.Fatalf("status = %q, want active", got.Status)
+	}
+
+	if err := repo.UpdateStatus(ctx, uuid.New(), memberships.StatusActive, &memberships.Patch{Status: &frozen}); !errors.Is(err, memberships.ErrNotFound) {
+		t.Fatalf("UpdateStatus missing = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMembershipRepositoryExpiryFilters(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewMembershipRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+
+	// A row whose time has passed but whose stored status is still active
+	// must not count as live: there is no background expirer.
+	now := time.Now().UTC()
+	id := uuid.New()
+	if err := repo.Create(ctx, &memberships.Membership{
+		ID: id, MemberID: memberID, PackageID: packageID, BranchID: branchID,
+		Status:   memberships.StatusActive,
+		StartsAt: now.AddDate(0, 0, -60), ExpiresAt: now.AddDate(0, 0, -30),
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("Create expired-but-active: %v", err)
+	}
+	cleanupTable(t, db, "memberships", id)
+
+	has, err := repo.HasActiveByMember(ctx, memberID)
+	if err != nil {
+		t.Fatalf("HasActiveByMember: %v", err)
+	}
+	if has {
+		t.Fatal("HasActiveByMember = true for a time-expired membership")
+	}
+	if _, err := repo.FindActiveByMemberAndBranch(ctx, memberID, branchID); !errors.Is(err, memberships.ErrNotFound) {
+		t.Fatalf("FindActiveByMemberAndBranch = %v, want ErrNotFound", err)
+	}
+}

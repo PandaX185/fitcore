@@ -30,6 +30,11 @@ func (f fakeRepo) Create(ctx context.Context, c *Class) error {
 func (f fakeRepo) GetByID(ctx context.Context, id uuid.UUID) (*Class, error) {
 	return f.getByID(ctx, id)
 }
+
+// GetForUpdate mirrors GetByID: fakes hold no locks.
+func (f fakeRepo) GetForUpdate(ctx context.Context, id uuid.UUID) (*Class, error) {
+	return f.getByID(ctx, id)
+}
 func (f fakeRepo) Update(ctx context.Context, id uuid.UUID, patch *Patch) error {
 	if f.update == nil {
 		return nil
@@ -71,6 +76,23 @@ func existingBranch() fakeBranches {
 	}}
 }
 
+type fakeOccupancy struct {
+	count func(ctx context.Context, classID uuid.UUID) (int, error)
+}
+
+func (f fakeOccupancy) CountActiveByClass(ctx context.Context, classID uuid.UUID) (int, error) {
+	if f.count == nil {
+		return 0, nil
+	}
+	return f.count(ctx, classID)
+}
+
+type stubTx struct{}
+
+func (stubTx) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
 func TestCreate(t *testing.T) {
 	branchID, trainerID := uuid.New(), uuid.New()
 	var created *Class
@@ -79,7 +101,7 @@ func TestCreate(t *testing.T) {
 		return nil
 	}}, existingBranch(), fakeTrainers{get: func(_ context.Context, id uuid.UUID) (*trainers.Trainer, error) {
 		return &trainers.Trainer{ID: id, BranchID: branchID}, nil
-	}})
+	}}, fakeOccupancy{}, stubTx{})
 
 	start := time.Now().UTC().Add(time.Hour)
 	end := start.Add(time.Hour)
@@ -98,7 +120,7 @@ func TestCreate(t *testing.T) {
 func TestCreateInvalid(t *testing.T) {
 	start := time.Now().UTC().Add(time.Hour)
 	id := uuid.New()
-	svc := NewService(fakeRepo{}, existingBranch(), fakeTrainers{})
+	svc := NewService(fakeRepo{}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	tests := []struct {
 		name     string
 		branchID uuid.UUID
@@ -124,7 +146,7 @@ func TestCreateInvalid(t *testing.T) {
 func TestCreateBranchNotFound(t *testing.T) {
 	svc := NewService(fakeRepo{}, fakeBranches{get: func(context.Context, uuid.UUID) (*branches.Branch, error) {
 		return nil, branches.ErrNotFound
-	}}, fakeTrainers{})
+	}}, fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	start := time.Now().UTC().Add(time.Hour)
 	if _, err := svc.Create(context.Background(), uuid.New(), nil, "Spin", start, start.Add(time.Hour), 20); !errors.Is(err, ErrBranchNotFound) {
 		t.Fatalf("Create = %v, want ErrBranchNotFound", err)
@@ -136,7 +158,7 @@ func TestCreateTrainerNotFound(t *testing.T) {
 	trainerID := uuid.New()
 	svc := NewService(fakeRepo{}, existingBranch(), fakeTrainers{get: func(context.Context, uuid.UUID) (*trainers.Trainer, error) {
 		return nil, trainers.ErrNotFound
-	}})
+	}}, fakeOccupancy{}, stubTx{})
 	start := time.Now().UTC().Add(time.Hour)
 	if _, err := svc.Create(context.Background(), branchID, &trainerID, "Spin", start, start.Add(time.Hour), 20); !errors.Is(err, ErrTrainerNotFound) {
 		t.Fatalf("Create = %v, want ErrTrainerNotFound", err)
@@ -148,7 +170,7 @@ func TestCreateTrainerWrongBranch(t *testing.T) {
 	trainerID := uuid.New()
 	svc := NewService(fakeRepo{}, existingBranch(), fakeTrainers{get: func(_ context.Context, id uuid.UUID) (*trainers.Trainer, error) {
 		return &trainers.Trainer{ID: id, BranchID: uuid.New()}, nil
-	}})
+	}}, fakeOccupancy{}, stubTx{})
 	start := time.Now().UTC().Add(time.Hour)
 	if _, err := svc.Create(context.Background(), branchID, &trainerID, "Spin", start, start.Add(time.Hour), 20); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Create = %v, want ErrInvalidInput", err)
@@ -168,7 +190,7 @@ func TestUpdate(t *testing.T) {
 			}
 			return nil
 		},
-	}, existingBranch(), fakeTrainers{})
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	capacity := 30
 	got, err := svc.Update(context.Background(), id, Patch{Capacity: &capacity})
 	if err != nil {
@@ -183,7 +205,7 @@ func TestUpdateInvalid(t *testing.T) {
 		getByID: func(context.Context, uuid.UUID) (*Class, error) {
 			return &Class{StartsAt: start, EndsAt: start.Add(time.Hour), Capacity: 10}, nil
 		},
-	}, existingBranch(), fakeTrainers{})
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	ends := start.Add(-time.Hour)
 	capacity := 0
 	if _, err := svc.Update(context.Background(), uuid.Nil, Patch{}); !errors.Is(err, ErrInvalidInput) {
@@ -204,7 +226,7 @@ func TestDelete(t *testing.T) {
 			t.Fatalf("Delete = %v, want %v", got, id)
 		}
 		return nil
-	}}, existingBranch(), fakeTrainers{})
+	}}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	if err := svc.Delete(context.Background(), id); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -221,7 +243,7 @@ func TestList(t *testing.T) {
 			t.Fatalf("List(%+v)", q)
 		}
 		return []*Class{{ID: uuid.New()}}, nil
-	}}, existingBranch(), fakeTrainers{})
+	}}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	res, err := svc.List(context.Background(), ListParams{BranchID: &branchID, TrainerID: &trainerID})
 	if err != nil || len(res.Items) != 1 {
 		t.Fatalf("List = %v, %v", res, err)
@@ -235,7 +257,7 @@ func TestListNilBranchAllowed(t *testing.T) {
 			t.Fatalf("List(%+v), want all", q)
 		}
 		return []*Class{{ID: branchID}}, nil
-	}}, existingBranch(), fakeTrainers{})
+	}}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 	if _, err := svc.List(context.Background(), ListParams{}); err != nil {
 		t.Fatalf("List nil filters: %v", err)
 	}
@@ -257,7 +279,7 @@ func TestListFirstPage(t *testing.T) {
 			}
 			return items, nil
 		},
-	}, existingBranch(), fakeTrainers{})
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 
 	res, err := svc.List(context.Background(), ListParams{})
 	if err != nil {
@@ -284,7 +306,7 @@ func TestListLastPage(t *testing.T) {
 		list: func(context.Context, *ListQuery) ([]*Class, error) {
 			return []*Class{{ID: uuid.New()}}, nil
 		},
-	}, existingBranch(), fakeTrainers{})
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 
 	res, err := svc.List(context.Background(), ListParams{Limit: 20})
 	if err != nil {
@@ -315,7 +337,7 @@ func TestListClampsLimit(t *testing.T) {
 					}
 					return nil, nil
 				},
-			}, existingBranch(), fakeTrainers{})
+			}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 			if _, err := svc.List(context.Background(), ListParams{Limit: tt.in}); err != nil {
 				t.Fatalf("List: unexpected error %v", err)
 			}
@@ -338,7 +360,7 @@ func TestListCursorRoundTrip(t *testing.T) {
 			}
 			return nil, nil
 		},
-	}, existingBranch(), fakeTrainers{})
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 
 	if _, err := svc.List(context.Background(), ListParams{Cursor: cursor}); err != nil {
 		t.Fatalf("List: unexpected error %v", err)
@@ -353,11 +375,79 @@ func TestListRejectsBadCursor(t *testing.T) {
 					t.Fatal("repo must not be called for a bad cursor")
 					return nil, nil
 				},
-			}, existingBranch(), fakeTrainers{})
+			}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
 			_, err := svc.List(context.Background(), ListParams{Cursor: cur})
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("List error = %v, want ErrInvalidInput", err)
 			}
 		})
+	}
+}
+
+func TestUpdateShrinkGuard(t *testing.T) {
+	start := time.Now().UTC().Add(time.Hour)
+	newSvc := func(t *testing.T, occupancy int, updated *bool) *Service {
+		return NewService(fakeRepo{
+			getByID: func(context.Context, uuid.UUID) (*Class, error) {
+				return &Class{StartsAt: start, EndsAt: start.Add(time.Hour), Capacity: 10}, nil
+			},
+			update: func(context.Context, uuid.UUID, *Patch) error {
+				*updated = true
+				return nil
+			},
+		}, existingBranch(), fakeTrainers{}, fakeOccupancy{count: func(context.Context, uuid.UUID) (int, error) {
+			return occupancy, nil
+		}}, stubTx{})
+	}
+	shrink := 3
+	updated := false
+	if _, err := newSvc(t, 5, &updated).Update(context.Background(), uuid.New(), Patch{Capacity: &shrink}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("Update shrink below occupancy = %v, want ErrInvalidInput", err)
+	}
+	if updated {
+		t.Fatal("repo.Update called despite rejected shrink")
+	}
+	// Shrinking exactly to the live count is allowed.
+	exact := 5
+	updated = false
+	if _, err := newSvc(t, 5, &updated).Update(context.Background(), uuid.New(), Patch{Capacity: &exact}); err != nil {
+		t.Fatalf("Update shrink to occupancy: %v", err)
+	}
+	if !updated {
+		t.Fatal("repo.Update not called for an allowed shrink")
+	}
+}
+
+func TestDeleteWithBookingsConflicts(t *testing.T) {
+	var deleted bool
+	svc := NewService(fakeRepo{
+		delete: func(context.Context, uuid.UUID) error {
+			deleted = true
+			return nil
+		},
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{count: func(context.Context, uuid.UUID) (int, error) {
+		return 2, nil
+	}}, stubTx{})
+	if err := svc.Delete(context.Background(), uuid.New()); !errors.Is(err, ErrHasBookings) {
+		t.Fatalf("Delete with bookings = %v, want ErrHasBookings", err)
+	}
+	if deleted {
+		t.Fatal("repo.Delete called despite active bookings")
+	}
+}
+
+func TestDeleteWithoutBookings(t *testing.T) {
+	var deleted bool
+	svc := NewService(fakeRepo{
+		delete: func(_ context.Context, got uuid.UUID) error {
+			deleted = true
+			return nil
+		},
+	}, existingBranch(), fakeTrainers{}, fakeOccupancy{}, stubTx{})
+	if err := svc.Delete(context.Background(), uuid.New()); err != nil {
+		t.Fatalf("Delete clean: %v", err)
+	}
+	if !deleted {
+		t.Fatal("repo.Delete not called for a class without bookings")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/memberships"
 	"github.com/PandaX185/fitcore/internal/paging"
+	"github.com/PandaX185/fitcore/internal/transact"
 )
 
 // Service implements the invoice business rules on the ports.
@@ -18,10 +19,11 @@ type Service struct {
 	repo        InvoiceRepository
 	members     MemberReader
 	memberships MembershipReader
+	tx          transact.Transactor
 }
 
-func NewService(repo InvoiceRepository, members MemberReader, memberships MembershipReader) *Service {
-	return &Service{repo: repo, members: members, memberships: memberships}
+func NewService(repo InvoiceRepository, members MemberReader, memberships MembershipReader, tx transact.Transactor) *Service {
+	return &Service{repo: repo, members: members, memberships: memberships, tx: tx}
 }
 
 // Get returns the invoice with the given ID.
@@ -33,7 +35,8 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Invoice, error) {
 }
 
 // Create issues an invoice for a membership. The member and membership must
-// exist; the invoice starts pending.
+// exist and the membership must belong to the member; the invoice starts
+// pending. Duplicate invoice terms pass the store's ErrDuplicate through.
 func (s *Service) Create(ctx context.Context, memberID, membershipID uuid.UUID, amountCents int64, currency string, dueAt time.Time) (*Invoice, error) {
 	if memberID == uuid.Nil || membershipID == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -51,11 +54,15 @@ func (s *Service) Create(ctx context.Context, memberID, membershipID uuid.UUID, 
 		}
 		return nil, err
 	}
-	if _, err := s.memberships.Get(ctx, membershipID); err != nil {
+	mship, err := s.memberships.Get(ctx, membershipID)
+	if err != nil {
 		if errors.Is(err, memberships.ErrNotFound) {
 			return nil, ErrMembershipNotFound
 		}
 		return nil, err
+	}
+	if mship.MemberID != memberID {
+		return nil, ErrInvalidInput
 	}
 	now := time.Now().UTC()
 	inv := &Invoice{
@@ -69,7 +76,10 @@ func (s *Service) Create(ctx context.Context, memberID, membershipID uuid.UUID, 
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.repo.Create(ctx, inv); err != nil {
+	err = s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		return s.repo.Create(txCtx, inv)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return inv, nil
@@ -77,6 +87,13 @@ func (s *Service) Create(ctx context.Context, memberID, membershipID uuid.UUID, 
 
 // Update applies a partial patch. Moving an invoice to paid stamps paid_at
 // automatically; moving it out of paid clears the stamp.
+//
+// Terminal states: void is terminal — any status change out of void is
+// ErrStateConflict (409). Paid is append-only in the same spirit: leaving
+// paid is ErrInvalidInput. The paid transition itself is a single
+// conditional write (pending/failed only); when it updates zero rows the
+// store reports ErrNotFound and the service re-reads to tell a missing
+// invoice (ErrNotFound) from a lost race (ErrStateConflict).
 func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Invoice, error) {
 	if id == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -91,6 +108,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Invoi
 		default:
 			return nil, ErrInvalidInput
 		}
+		if existing.Status == StatusVoid && *patch.Status != StatusVoid {
+			return nil, ErrStateConflict
+		}
 		if existing.Status == StatusPaid && *patch.Status != StatusPaid {
 			return nil, ErrInvalidInput
 		}
@@ -98,10 +118,27 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch) (*Invoi
 	if patch.DueAt != nil && patch.DueAt.IsZero() {
 		return nil, ErrInvalidInput
 	}
-	if err := s.repo.Update(ctx, id, &patch); err != nil {
-		return nil, err
-	}
-	updated, err := s.repo.GetByID(ctx, id)
+	toPaid := patch.Status != nil && *patch.Status == StatusPaid
+	var updated *Invoice
+	err = s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.Update(txCtx, id, &patch); err != nil {
+			if errors.Is(err, ErrNotFound) && toPaid {
+				if _, getErr := s.repo.GetByID(txCtx, id); errors.Is(getErr, ErrNotFound) {
+					return ErrNotFound
+				} else if getErr != nil {
+					return getErr
+				}
+				return ErrStateConflict
+			}
+			return err
+		}
+		u, err := s.repo.GetByID(txCtx, id)
+		if err != nil {
+			return err
+		}
+		updated = u
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}

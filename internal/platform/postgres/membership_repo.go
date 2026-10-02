@@ -98,11 +98,40 @@ func (r *MembershipRepository) Update(ctx context.Context, id uuid.UUID, patch *
 	return nil
 }
 
+// UpdateStatus behaves like Update but only applies when the row still
+// carries the expected status (UPDATE ... WHERE id AND status), returning
+// ErrNotFound on zero rows so concurrent lifecycle moves are detected
+// instead of silently overwriting each other.
+func (r *MembershipRepository) UpdateStatus(ctx context.Context, id uuid.UUID, expected memberships.Status, patch *memberships.Patch) error {
+	sets := map[string]any{"updated_at": time.Now().UTC()}
+	if patch.Status != nil {
+		sets["status"] = string(*patch.Status)
+	}
+	if patch.ExpiresAt != nil {
+		sets["expires_on"] = *patch.ExpiresAt
+	}
+
+	res := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
+		Model(&membershipRow{}).
+		Where("id = ? AND status = ?", id, string(expected)).
+		Updates(sets)
+	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
+		return memberships.ErrDuplicateActive
+	}
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return memberships.ErrNotFound
+	}
+	return nil
+}
+
 func (r *MembershipRepository) HasActiveByMember(ctx context.Context, memberID uuid.UUID) (bool, error) {
 	var count int64
 	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
 		Model(&membershipRow{}).
-		Where("member_id = ? AND status = ?", memberID, memberships.StatusActive).
+		Where("member_id = ? AND status = ? AND expires_on > now()", memberID, memberships.StatusActive).
 		Count(&count).Error
 	return count > 0, err
 }
@@ -110,7 +139,7 @@ func (r *MembershipRepository) HasActiveByMember(ctx context.Context, memberID u
 func (r *MembershipRepository) FindActiveByMemberAndBranch(ctx context.Context, memberID, branchID uuid.UUID) (*memberships.Membership, error) {
 	var row membershipRow
 	err := FromContext(ctx, r.db.Gorm()).WithContext(ctx).
-		Where("member_id = ? AND branch_id = ? AND status = ?", memberID, branchID, memberships.StatusActive).
+		Where("member_id = ? AND branch_id = ? AND status = ? AND expires_on > now()", memberID, branchID, memberships.StatusActive).
 		Order("starts_on DESC, id").First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, memberships.ErrNotFound

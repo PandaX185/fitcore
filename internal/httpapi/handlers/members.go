@@ -128,6 +128,9 @@ func (h *membersHandler) fail(c *gin.Context, op string, err error) {
 	case errors.Is(err, members.ErrDuplicateEmail):
 		status = http.StatusConflict
 		msg = "email already in use"
+	case errors.Is(err, members.ErrHasDependents):
+		status = http.StatusConflict
+		msg = "member has active dependents"
 	}
 	httpx.Error(c, h.log, h.metrics, "members", op, status, msg, err)
 }

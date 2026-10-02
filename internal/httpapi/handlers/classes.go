@@ -133,6 +133,9 @@ func (h *classesHandler) fail(c *gin.Context, op string, err error) {
 	case errors.Is(err, classes.ErrInvalidInput):
 		status = http.StatusBadRequest
 		msg = "invalid class"
+	case errors.Is(err, classes.ErrHasBookings):
+		status = http.StatusConflict
+		msg = "class has active bookings"
 	}
 	httpx.Error(c, h.log, h.metrics, "classes", op, status, msg, err)
 }

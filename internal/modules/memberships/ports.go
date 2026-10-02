@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/PandaX185/fitcore/internal/modules/branches"
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/modules/packages"
 )
@@ -15,6 +16,11 @@ type MembershipRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Membership, error)
 	ListByMember(ctx context.Context, q *MemberListQuery) ([]*Membership, error)
 	Update(ctx context.Context, id uuid.UUID, patch *Patch) error
+	// UpdateStatus behaves like Update but only applies when the row still
+	// carries the expected status (UPDATE ... WHERE id AND status),
+	// returning ErrNotFound on zero rows so concurrent lifecycle moves are
+	// detected instead of silently overwriting each other.
+	UpdateStatus(ctx context.Context, id uuid.UUID, expected Status, patch *Patch) error
 	// HasActiveByMember reports whether the member holds a live membership;
 	// the store's partial unique index backs the same invariant at rest.
 	HasActiveByMember(ctx context.Context, memberID uuid.UUID) (bool, error)
@@ -33,4 +39,11 @@ type PackageReader interface {
 // purchases for unknown members.
 type MemberReader interface {
 	Get(ctx context.Context, id uuid.UUID) (*members.Member, error)
+}
+
+// BranchReader is the slice of the branches store memberships needs to
+// reject purchases against unknown branches (same shape as the classes
+// port).
+type BranchReader interface {
+	Get(ctx context.Context, id uuid.UUID) (*branches.Branch, error)
 }

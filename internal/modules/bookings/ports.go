@@ -19,9 +19,12 @@ type BookingRepository interface {
 }
 
 // ClassReader is the slice of the classes store bookings needs for capacity
-// and existence checks.
+// and existence checks. GetForUpdate returns the class row locked
+// (SELECT ... FOR UPDATE) so the capacity check and the insert that follow
+// serialize against concurrent bookers inside one transaction.
 type ClassReader interface {
 	Get(ctx context.Context, id uuid.UUID) (*classes.Class, error)
+	GetForUpdate(ctx context.Context, id uuid.UUID) (*classes.Class, error)
 }
 
 // MemberReader is the slice of the members store bookings needs to reject

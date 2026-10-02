@@ -105,7 +105,7 @@ func (h *membershipsHandler) fail(c *gin.Context, op string, err error) {
 	switch {
 	case err == nil:
 		return
-	case errors.Is(err, memberships.ErrNotFound), errors.Is(err, memberships.ErrMemberNotFound), errors.Is(err, memberships.ErrPackageNotFound):
+	case errors.Is(err, memberships.ErrNotFound), errors.Is(err, memberships.ErrMemberNotFound), errors.Is(err, memberships.ErrPackageNotFound), errors.Is(err, memberships.ErrBranchNotFound):
 		status = http.StatusNotFound
 		msg = "membership not found"
 	case errors.Is(err, memberships.ErrInvalidInput):

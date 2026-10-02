@@ -10,6 +10,7 @@ import (
 	"github.com/PandaX185/fitcore/internal/modules/classes"
 	"github.com/PandaX185/fitcore/internal/modules/members"
 	"github.com/PandaX185/fitcore/internal/paging"
+	"github.com/PandaX185/fitcore/internal/transact"
 )
 
 // Service implements the class-booking business rules on the ports.
@@ -17,10 +18,11 @@ type Service struct {
 	repo    BookingRepository
 	classes ClassReader
 	members MemberReader
+	tx      transact.Transactor
 }
 
-func NewService(repo BookingRepository, classes ClassReader, members MemberReader) *Service {
-	return &Service{repo: repo, classes: classes, members: members}
+func NewService(repo BookingRepository, classes ClassReader, members MemberReader, tx transact.Transactor) *Service {
+	return &Service{repo: repo, classes: classes, members: members, tx: tx}
 }
 
 // Get returns the booking with the given ID.
@@ -34,6 +36,10 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Booking, error) {
 // Create reserves a seat for the class. Refusals: unknown class or member
 // (404), the class already running (409), the member already holds an active
 // booking (409), and the class at capacity (409).
+//
+// The locked class read, the occupancy count, and the insert run inside one
+// transaction: the class row is selected FOR UPDATE first, so concurrent
+// bookers serialize and the capacity check cannot over-admit (TOCTOU).
 func (s *Service) Create(ctx context.Context, classID, memberID uuid.UUID) (*Booking, error) {
 	if classID == uuid.Nil || memberID == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -44,58 +50,67 @@ func (s *Service) Create(ctx context.Context, classID, memberID uuid.UUID) (*Boo
 		}
 		return nil, err
 	}
-	cl, err := s.classes.Get(ctx, classID)
-	if err != nil {
-		if errors.Is(err, classes.ErrNotFound) {
-			return nil, ErrClassNotFound
+	var b *Booking
+	err := s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		cl, err := s.classes.GetForUpdate(txCtx, classID)
+		if err != nil {
+			if errors.Is(err, classes.ErrNotFound) {
+				return ErrClassNotFound
+			}
+			return err
 		}
-		return nil, err
-	}
-	now := time.Now().UTC()
-	if !cl.EndsAt.After(now) {
-		return nil, ErrInvalidInput
-	}
-	count, err := s.repo.CountActiveByClass(ctx, classID)
+		now := time.Now().UTC()
+		if !cl.EndsAt.After(now) {
+			return ErrInvalidInput
+		}
+		count, err := s.repo.CountActiveByClass(txCtx, classID)
+		if err != nil {
+			return err
+		}
+		if count >= cl.Capacity {
+			return ErrClassFull
+		}
+		b = &Booking{
+			ID:        uuid.New(),
+			ClassID:   classID,
+			MemberID:  memberID,
+			Status:    StatusBooked,
+			BookedAt:  now,
+			CreatedAt: now,
+		}
+		if err := s.repo.Create(txCtx, b); err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	if count >= cl.Capacity {
-		return nil, ErrClassFull
-	}
-	b := &Booking{
-		ID:        uuid.New(),
-		ClassID:   classID,
-		MemberID:  memberID,
-		Status:    StatusBooked,
-		BookedAt:  now,
-		CreatedAt: now,
-	}
-	if err := s.repo.Create(ctx, b); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-// Cancel moves a booked seat to cancelled, stamping cancelled_at. Cancelling
-// an already-cancelled booking is a no-op.
+// Cancel moves a booked seat to cancelled, stamping cancelled_at. The store
+// flips the row only while it is still booked (UPDATE ... WHERE booked), so
+// concurrent cancels serialize: the loser re-reads the row and returns the
+// already-cancelled booking (200) instead of failing. A missing row maps to
+// ErrNotFound.
 func (s *Service) Cancel(ctx context.Context, id uuid.UUID) (*Booking, error) {
 	if id == uuid.Nil {
 		return nil, ErrInvalidInput
 	}
-	existing, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if existing.Status == StatusCancelled {
+	cancelledAt := time.Now().UTC()
+	b := &Booking{ID: id, Status: StatusCancelled, CancelledAt: &cancelledAt}
+	if err := s.repo.Cancel(ctx, b); err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		existing, getErr := s.repo.GetByID(ctx, id)
+		if getErr != nil {
+			return nil, getErr
+		}
 		return existing, nil
 	}
-	cancelledAt := time.Now().UTC()
-	existing.Status = StatusCancelled
-	existing.CancelledAt = &cancelledAt
-	if err := s.repo.Cancel(ctx, existing); err != nil {
-		return nil, err
-	}
-	return existing, nil
+	return s.repo.GetByID(ctx, id)
 }
 
 // ListByClass returns one page of bookings for a class ordered by

@@ -14,6 +14,10 @@ var (
 	ErrMemberNotFound     = errors.New("member not found")
 	ErrMembershipNotFound = errors.New("membership not found")
 	ErrDuplicate          = errors.New("duplicate invoice")
+	// ErrStateConflict reports a lost race or an illegal lifecycle move:
+	// the invoice was paid, voided, or concurrently transitioned by
+	// another writer, so the requested transition no longer applies.
+	ErrStateConflict = errors.New("invoice state conflict")
 )
 
 // InvoiceStatus describes the lifecycle of an invoice.

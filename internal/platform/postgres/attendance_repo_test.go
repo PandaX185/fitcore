@@ -209,3 +209,49 @@ func TestAttendanceRepositoryListByMemberPaginates(t *testing.T) {
 		prev = p
 	}
 }
+
+func TestAttendanceRepositoryHasOpenByMember(t *testing.T) {
+	db := testutilDB(t)
+	repo := postgres.NewAttendanceRepository(db)
+	ctx := context.Background()
+
+	branchID := createTestBranch(t, db)
+	memberID := createTestMember(t, db, branchID)
+	packageID := createTestPackage(t, db)
+	membershipID := createTestMembership(t, db, memberID, packageID, branchID, memberships.StatusActive)
+
+	has, err := repo.HasOpenByMember(ctx, memberID)
+	if err != nil || has {
+		t.Fatalf("HasOpenByMember empty = %v, %v; want false", has, err)
+	}
+
+	now := time.Now().UTC()
+	id := uuid.New()
+	if err := repo.Create(ctx, &attendance.Attendance{ID: id, MemberID: memberID, BranchID: branchID, MembershipID: membershipID, CheckedInAt: now, CreatedAt: now}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cleanupTable(t, db, "attendance", id)
+
+	has, err = repo.HasOpenByMember(ctx, memberID)
+	if err != nil || !has {
+		t.Fatalf("HasOpenByMember open = %v, %v; want true", has, err)
+	}
+
+	// The locked lookup sees the same open row.
+	open, err := repo.FindOpenByMemberForUpdate(ctx, memberID)
+	if err != nil || open.ID != id {
+		t.Fatalf("FindOpenByMemberForUpdate = %v, %v; want %v", open, err, id)
+	}
+
+	out := now.Add(time.Hour)
+	if err := repo.Close(ctx, &attendance.Attendance{ID: id, CheckedOutAt: &out}); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	has, err = repo.HasOpenByMember(ctx, memberID)
+	if err != nil || has {
+		t.Fatalf("HasOpenByMember closed = %v, %v; want false", has, err)
+	}
+	if _, err := repo.FindOpenByMemberForUpdate(ctx, memberID); !errors.Is(err, attendance.ErrNotFound) {
+		t.Fatalf("FindOpenByMemberForUpdate closed = %v, want ErrNotFound", err)
+	}
+}

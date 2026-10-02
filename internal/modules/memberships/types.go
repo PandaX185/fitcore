@@ -15,6 +15,7 @@ var (
 	ErrDuplicateActive = errors.New("member already has an active membership")
 	ErrMemberNotFound  = errors.New("member not found")
 	ErrPackageNotFound = errors.New("package not found")
+	ErrBranchNotFound  = errors.New("branch not found")
 )
 
 // Status describes the lifecycle state of a membership.

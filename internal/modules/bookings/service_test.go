@@ -57,6 +57,17 @@ func (f fakeClasses) Get(ctx context.Context, id uuid.UUID) (*classes.Class, err
 	return f.get(ctx, id)
 }
 
+// GetForUpdate mirrors Get: fakes hold no locks.
+func (f fakeClasses) GetForUpdate(ctx context.Context, id uuid.UUID) (*classes.Class, error) {
+	return f.get(ctx, id)
+}
+
+type stubTx struct{}
+
+func (stubTx) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
 type fakeMembers struct {
 	get func(ctx context.Context, id uuid.UUID) (*members.Member, error)
 }
@@ -80,7 +91,7 @@ func TestGet(t *testing.T) {
 			t.Fatalf("GetByID(%v)", got)
 		}
 		return want, nil
-	}}, futureClass(10), fakeMembers{})
+	}}, futureClass(10), fakeMembers{}, stubTx{})
 	got, err := svc.Get(context.Background(), id)
 	if err != nil || got != want {
 		t.Fatalf("Get = %v, %v", got, err)
@@ -98,7 +109,7 @@ func TestCreate(t *testing.T) {
 		return nil
 	}}, futureClass(10), fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}})
+	}}, stubTx{})
 
 	got, err := svc.Create(context.Background(), classID, memberID)
 	if err != nil {
@@ -113,7 +124,7 @@ func TestCreate(t *testing.T) {
 }
 
 func TestCreateInvalid(t *testing.T) {
-	svc := NewService(fakeRepo{}, futureClass(10), fakeMembers{})
+	svc := NewService(fakeRepo{}, futureClass(10), fakeMembers{}, stubTx{})
 	id := uuid.New()
 	if _, err := svc.Create(context.Background(), uuid.Nil, id); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Create nil class = %v", err)
@@ -126,7 +137,7 @@ func TestCreateInvalid(t *testing.T) {
 func TestCreateMemberNotFound(t *testing.T) {
 	svc := NewService(fakeRepo{}, futureClass(10), fakeMembers{get: func(context.Context, uuid.UUID) (*members.Member, error) {
 		return nil, members.ErrNotFound
-	}})
+	}}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrMemberNotFound) {
 		t.Fatalf("Create = %v, want ErrMemberNotFound", err)
 	}
@@ -137,7 +148,7 @@ func TestCreateClassNotFound(t *testing.T) {
 		return nil, classes.ErrNotFound
 	}}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}})
+	}}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrClassNotFound) {
 		t.Fatalf("Create = %v, want ErrClassNotFound", err)
 	}
@@ -149,7 +160,7 @@ func TestCreateClassFinished(t *testing.T) {
 		return &classes.Class{StartsAt: past, EndsAt: past.Add(-time.Hour)}, nil
 	}}, fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}})
+	}}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Create finished class = %v, want ErrInvalidInput", err)
 	}
@@ -160,7 +171,7 @@ func TestCreateClassFull(t *testing.T) {
 		countActiveByClass: func(context.Context, uuid.UUID) (int, error) { return 10, nil },
 	}, futureClass(10), fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}})
+	}}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrClassFull) {
 		t.Fatalf("Create full = %v, want ErrClassFull", err)
 	}
@@ -171,7 +182,7 @@ func TestCreateDuplicate(t *testing.T) {
 		return ErrDuplicate
 	}}, futureClass(10), fakeMembers{get: func(_ context.Context, id uuid.UUID) (*members.Member, error) {
 		return &members.Member{ID: id}, nil
-	}})
+	}}, stubTx{})
 	if _, err := svc.Create(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrDuplicate) {
 		t.Fatalf("Create dup = %v, want ErrDuplicate", err)
 	}
@@ -179,17 +190,18 @@ func TestCreateDuplicate(t *testing.T) {
 
 func TestCancel(t *testing.T) {
 	id := uuid.New()
+	at := time.Now().UTC()
 	svc := NewService(fakeRepo{
 		getByID: func(_ context.Context, got uuid.UUID) (*Booking, error) {
-			return &Booking{ID: got, Status: StatusBooked}, nil
+			return &Booking{ID: got, Status: StatusCancelled, CancelledAt: &at}, nil
 		},
 		cancel: func(_ context.Context, b *Booking) error {
-			if b.Status != StatusCancelled || b.CancelledAt == nil {
+			if b.ID != id || b.Status != StatusCancelled || b.CancelledAt == nil {
 				t.Fatalf("cancel = %+v", b)
 			}
 			return nil
 		},
-	}, futureClass(10), fakeMembers{})
+	}, futureClass(10), fakeMembers{}, stubTx{})
 	got, err := svc.Cancel(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Cancel: %v", err)
@@ -199,22 +211,47 @@ func TestCancel(t *testing.T) {
 	}
 }
 
-func TestCancelAlreadyCancelledIsNoop(t *testing.T) {
+// TestCancelAlreadyCancelledReturnsIt covers the lost cancel race: the
+// conditional update touches zero rows (ErrNotFound), the re-read finds the
+// already-cancelled row, and the service returns it with a 200.
+func TestCancelAlreadyCancelledReturnsIt(t *testing.T) {
 	calls := 0
+	cancelled := &Booking{ID: uuid.New(), Status: StatusCancelled, CancelledAt: &time.Time{}}
 	svc := NewService(fakeRepo{
 		getByID: func(_ context.Context, id uuid.UUID) (*Booking, error) {
-			return &Booking{ID: id, Status: StatusCancelled}, nil
+			return cancelled, nil
 		},
 		cancel: func(context.Context, *Booking) error {
 			calls++
-			return nil
+			return ErrNotFound
 		},
-	}, futureClass(10), fakeMembers{})
-	if _, err := svc.Cancel(context.Background(), uuid.New()); err != nil {
+	}, futureClass(10), fakeMembers{}, stubTx{})
+	got, err := svc.Cancel(context.Background(), cancelled.ID)
+	if err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	if calls != 0 {
-		t.Fatalf("repo.Cancel called %d times on already-cancelled", calls)
+	if got != cancelled {
+		t.Fatalf("Cancel = %v, want the already-cancelled row", got)
+	}
+	if calls != 1 {
+		t.Fatalf("repo.Cancel called %d times, want 1 conditional attempt", calls)
+	}
+}
+
+func TestCancelMissing(t *testing.T) {
+	svc := NewService(fakeRepo{
+		getByID: func(context.Context, uuid.UUID) (*Booking, error) {
+			return nil, ErrNotFound
+		},
+		cancel: func(context.Context, *Booking) error {
+			return ErrNotFound
+		},
+	}, futureClass(10), fakeMembers{}, stubTx{})
+	if _, err := svc.Cancel(context.Background(), uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Cancel missing = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.Cancel(context.Background(), uuid.Nil); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("Cancel nil = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -225,7 +262,7 @@ func TestListByClass(t *testing.T) {
 			t.Fatalf("ClassListQuery(%+v)", q)
 		}
 		return []*Booking{{ID: uuid.New()}}, nil
-	}}, futureClass(10), fakeMembers{})
+	}}, futureClass(10), fakeMembers{}, stubTx{})
 	res, err := svc.ListByClass(context.Background(), classID, ClassListParams{})
 	if err != nil || len(res.Items) != 1 {
 		t.Fatalf("ListByClass = %v, %v", res, err)
@@ -252,7 +289,7 @@ func TestListByClassFirstPage(t *testing.T) {
 			}
 			return items, nil
 		},
-	}, futureClass(10), fakeMembers{})
+	}, futureClass(10), fakeMembers{}, stubTx{})
 
 	res, err := svc.ListByClass(context.Background(), classID, ClassListParams{})
 	if err != nil {
@@ -278,7 +315,7 @@ func TestListByClassLastPage(t *testing.T) {
 		listByClass: func(context.Context, *ClassListQuery) ([]*Booking, error) {
 			return []*Booking{{ID: uuid.New()}}, nil
 		},
-	}, futureClass(10), fakeMembers{})
+	}, futureClass(10), fakeMembers{}, stubTx{})
 
 	res, err := svc.ListByClass(context.Background(), uuid.New(), ClassListParams{Limit: 20})
 	if err != nil {
@@ -309,7 +346,7 @@ func TestListByClassClampsLimit(t *testing.T) {
 					}
 					return nil, nil
 				},
-			}, futureClass(10), fakeMembers{})
+			}, futureClass(10), fakeMembers{}, stubTx{})
 			if _, err := svc.ListByClass(context.Background(), uuid.New(), ClassListParams{Limit: tt.in}); err != nil {
 				t.Fatalf("ListByClass: unexpected error %v", err)
 			}
@@ -332,7 +369,7 @@ func TestListByClassCursorRoundTrip(t *testing.T) {
 			}
 			return nil, nil
 		},
-	}, futureClass(10), fakeMembers{})
+	}, futureClass(10), fakeMembers{}, stubTx{})
 
 	if _, err := svc.ListByClass(context.Background(), uuid.New(), ClassListParams{Cursor: cursor}); err != nil {
 		t.Fatalf("ListByClass: unexpected error %v", err)
@@ -347,7 +384,7 @@ func TestListByClassRejectsBadCursor(t *testing.T) {
 					t.Fatal("repo must not be called for a bad cursor")
 					return nil, nil
 				},
-			}, futureClass(10), fakeMembers{})
+			}, futureClass(10), fakeMembers{}, stubTx{})
 			_, err := svc.ListByClass(context.Background(), uuid.New(), ClassListParams{Cursor: cur})
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Fatalf("ListByClass error = %v, want ErrInvalidInput", err)
