@@ -75,6 +75,8 @@ infrastructure it depends on, while the module keeps only the port interface.
 
 ## Step 5 — HTTP adapter (`internal/httpapi/handlers/<feature>.go`)
 
+> Historical note: every module already exists — no 501 stubs remain and dependencies are already wired — so "replace the stub" / "first feature wires dependencies" below are kept for history only.
+
 Replace the 501 stub. The generated wrapper already parsed and validated path
 params (a malformed UUID is a 400 before your method runs).
 

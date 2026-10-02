@@ -31,15 +31,6 @@ func Limit(n int) int {
 	return n
 }
 
-// MaybeLimit applies Limit to a pointer page size, treating absence as the
-// default. It exists for adapters that hand over a `nil` query parameter.
-func MaybeLimit(n *int) int {
-	if n == nil {
-		return DefaultLimit
-	}
-	return Limit(*n)
-}
-
 // Cursor is an opaque keyset cursor identifying a row in any (sort key, id)
 // ordering. Key carries the primary sort value as text; ID breaks ties.
 type Cursor struct {

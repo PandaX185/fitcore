@@ -138,20 +138,24 @@ func bearerToken(c *gin.Context) (string, error) {
 }
 
 func abortAuth(c *gin.Context, log *slog.Logger, status int, cause error) {
-	if log != nil && cause != nil {
-		attrs := []any{
-			"route", c.FullPath(),
-			"status", status,
-			"error", cause,
-		}
-		if rid, ok := c.Get(RequestIDKey); ok {
-			attrs = append(attrs, "request_id", rid)
-		}
-		log.Warn("request rejected", attrs...)
-	}
 	code := "unauthorized"
 	if status == http.StatusForbidden {
 		code = "forbidden"
 	}
-	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"message": code, "code": code}})
+	if log != nil {
+		attrs := []any{
+			"route", c.FullPath(),
+			"status", status,
+		}
+		if rid, ok := c.Get(RequestIDKey); ok {
+			attrs = append(attrs, "request_id", rid)
+		}
+		// Log unconditionally: 403 rejections carry no cause by design, and
+		// a silent deny is invisible in audits.
+		if cause != nil {
+			attrs = append(attrs, "error", cause)
+		}
+		log.Warn("request rejected", attrs...)
+	}
+	c.AbortWithStatusJSON(status, gin.H{"error": code, "code": code})
 }

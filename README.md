@@ -147,8 +147,14 @@ just migrate-version
 
 ## Configuration
 
-All configuration is read from the environment. See `.env.example`. The only
-required variable is `DATABASE_URL`.
+All configuration is read from the environment — see `.env.example` and
+`internal/config/config.go` (the source of truth for names and defaults).
+`DATABASE_URL` and `TOKEN_SECRET` are required (the server fails closed
+without them); everything else has development defaults.
+
+`GET /readyz` checks both postgres and redis. `/metrics` is served on the
+published server port (see `deploy/docker-compose.yml`) — put it behind a
+reverse proxy in production.
 
 ## Architecture
 
@@ -173,7 +179,8 @@ required variable is `DATABASE_URL`.
   `fitcore_memberships_purchased_total` (base Go/process collectors included).
 - Alerts: `deploy/prometheus/rules.yml` (5xx rate, p95 latency, DB errors).
 - Dashboards: `deploy/grafana/dashboards/fitcore.json` auto-provisioned.
-- Alertmanager delivers to `ALERTMANAGER_WEBHOOK_URL` when set.
+- Alertmanager delivers to `ALERTMANAGER_WEBHOOK_URL` when set; otherwise
+  alerts stay local (log receiver, visible in the Alertmanager UI).
 
 ## Contributing
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/PandaX185/fitcore/internal/httpapi/middleware"
 	"github.com/PandaX185/fitcore/internal/platform/telemetry"
 )
 
@@ -21,15 +22,28 @@ func JSON(c *gin.Context, status int, body any) {
 func Error(c *gin.Context, log *slog.Logger, metrics *telemetry.Metrics, module, operation string, status int, message string, cause error) {
 	if metrics != nil {
 		metrics.RecordApplicationError(module, operation, status)
+		if status >= 500 {
+			metrics.RecordDatabaseError(module, operation)
+		}
 	}
 	if log != nil {
-		log.Warn("http request failed",
+		path := c.FullPath()
+		if path == "" && c.Request != nil && c.Request.URL != nil {
+			path = c.Request.URL.Path
+		}
+		fields := []any{
 			"module", module,
 			"operation", operation,
 			"status", status,
 			"message", message,
 			"error", errString(cause),
-		)
+			"method", c.Request.Method,
+			"path", path,
+		}
+		if rid, ok := c.Get(middleware.RequestIDKey); ok {
+			fields = append(fields, "request_id", rid)
+		}
+		log.Warn("http request failed", fields...)
 	}
 	c.AbortWithStatusJSON(status, gin.H{"error": message, "code": codeForStatus(status)})
 }

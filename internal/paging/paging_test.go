@@ -25,20 +25,6 @@ func TestLimit(t *testing.T) {
 	}
 }
 
-func TestMaybeLimit(t *testing.T) {
-	if got := MaybeLimit(nil); got != DefaultLimit {
-		t.Fatalf("MaybeLimit(nil) = %d, want %d", got, DefaultLimit)
-	}
-	n := 5
-	if got := MaybeLimit(&n); got != 5 {
-		t.Fatalf("MaybeLimit(&5) = %d, want 5", got)
-	}
-	huge := 5000
-	if got := MaybeLimit(&huge); got != MaxLimit {
-		t.Fatalf("MaybeLimit(&5000) = %d, want %d", got, MaxLimit)
-	}
-}
-
 func TestCursorRoundTrip(t *testing.T) {
 	c := Cursor{Key: "Alpha Gym", ID: uuid.New()}
 	got, err := DecodeCursor(c.Encode())

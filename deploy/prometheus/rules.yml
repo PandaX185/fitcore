@@ -2,13 +2,22 @@ groups:
   - name: fitcore.rules
     rules:
       - alert: FitCoreUp
-        expr: up{job="fitcore"}
+        expr: up{job="fitcore"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: "FitCore server is down"
           description: "Prometheus cannot reach the FitCore /metrics endpoint."
+
+      - alert: RedisDown
+        expr: absent(up{job="redis"}) or up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down or unmonitored"
+          description: "The redis scrape target is down, or no redis job is configured in Prometheus."
 
       - alert: FitCoreHighErrorRate
         expr: |
@@ -20,6 +29,17 @@ groups:
         annotations:
           summary: "FitCore 5xx rate above 5%"
           description: "HTTP 5xx responses exceeded 5% of all traffic over the last 5 minutes."
+
+      - alert: FitCoreHigh4xxRate
+        expr: |
+          sum(rate(fitcore_http_requests_total{status=~"4.."}[5m]))
+            / sum(rate(fitcore_http_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FitCore 4xx rate above 10%"
+          description: "HTTP 4xx responses exceeded 10% of all traffic over the last 5 minutes."
 
       - alert: FitCoreSlowResponses
         expr: |

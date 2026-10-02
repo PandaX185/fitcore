@@ -40,6 +40,9 @@ func (h *membershipsHandler) CreateMembership(c *gin.Context) {
 		h.fail(c, "createMembership", err)
 		return
 	}
+	if h.metrics != nil {
+		h.metrics.RecordMembershipPurchased(c.Request.Context())
+	}
 	httpx.JSON(c, http.StatusCreated, toMembershipResponse(m))
 }
 

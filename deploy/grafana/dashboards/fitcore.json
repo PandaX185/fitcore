@@ -130,10 +130,34 @@
     {
       "datasource": { "type": "prometheus", "uid": "ds_prometheus" },
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "errors",
+          "decimals": 2
+        },
         "overrides": []
       },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 7,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(fitcore_application_errors_total[5m])) by (module, operation)",
+          "legendFormat": "{{module}}/{{operation}}"
+        }
+      ],
+      "title": "Application errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ds_prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
       "id": 6,
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },

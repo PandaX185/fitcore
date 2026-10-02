@@ -18,6 +18,7 @@ import (
 	"github.com/PandaX185/fitcore/internal/platform/postgres"
 	"github.com/PandaX185/fitcore/internal/platform/redis"
 	"github.com/PandaX185/fitcore/internal/platform/telemetry"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -36,7 +37,11 @@ func run() error {
 	log := logging.New(cfg.LogLevel)
 	ctx := context.Background()
 
-	db, err := postgres.Open(ctx, cfg.DatabaseURL)
+	if cfg.Env != "development" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	db, err := postgres.OpenWithPool(ctx, cfg.DatabaseURL, cfg.MaxOpenConns, cfg.MaxIdleConns)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -69,8 +74,10 @@ func run() error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
-	_ = srv
 
 	srvErr := make(chan error, 1)
 	go func() {
@@ -78,8 +85,9 @@ func run() error {
 		srvErr <- srv.ListenAndServe()
 	}()
 
-	stop := make(chan os.Signal, 1)
+	stop := make(chan os.Signal, 2)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
 
 	select {
 	case err := <-srvErr:
@@ -89,8 +97,17 @@ func run() error {
 		return fmt.Errorf("http server: %w", err)
 	case sig := <-stop:
 		log.Info("shutting down", "signal", sig.String())
+		go func() {
+			<-stop
+			log.Error("second signal received, forcing exit")
+			os.Exit(1)
+		}()
 		shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("http server shutdown: %w", err)
+		}
+		log.Info("drained")
+		return nil
 	}
 }

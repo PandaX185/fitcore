@@ -44,6 +44,8 @@ func New(deps Deps) *gin.Engine {
 	if err := r.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
 		deps.Logger.Warn("failed to set trusted proxies", "error", err)
 	}
+	// BodyLimit first so oversized payloads are rejected before any other work.
+	r.Use(middleware.BodyLimit(middleware.DefaultMaxBodyBytes))
 	r.Use(gin.Recovery())
 	// RequestID first so loggers and auth rejections share one id; the
 	// rate limiter runs before AuthGuard so credential-guessing is throttled
