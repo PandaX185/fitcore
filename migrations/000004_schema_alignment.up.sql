@@ -5,7 +5,7 @@
 -- invoice membership/due-date/currency columns, and trainer activation.
 
 ALTER TABLE membership_packages
-    ADD COLUMN currency text NOT NULL DEFAULT 'BHD',
+    ADD COLUMN currency text NOT NULL DEFAULT 'EGP',
     ADD CONSTRAINT chk_membership_packages_currency CHECK (char_length(currency) = 3);
 
 ALTER TABLE memberships
