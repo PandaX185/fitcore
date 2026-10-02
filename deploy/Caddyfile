@@ -1,0 +1,21 @@
+# FitCore production edge: terminates TLS via automatic HTTPS (Let's Encrypt)
+# and proxies to the API container. REQUIRED env vars, injected by compose:
+#   FITCORE_DOMAIN   e.g. api.fitcore.example    (must point at this VPS)
+#   CADDY_EMAIL      ACME account / expiry notices
+
+{$FITCORE_DOMAIN} {
+	# Strict HSTS once TLS is up; preload is left for operators to enable.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+
+	encode zstd gzip
+
+	request_body {
+		max_size 1MB
+	}
+
+	reverse_proxy server:8080
+}

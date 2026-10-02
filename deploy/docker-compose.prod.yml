@@ -1,0 +1,281 @@
+# FitCore production stack — single-VPS deployment with Compose.
+#
+# Deployment notes (full runbook: docs/PROD.md)
+#   1. cp deploy/.env.prod.example .env  and fill required secrets
+#      (POSTGRES_PASSWORD, TOKEN_SECRET, FITCORE_DOMAIN, CADDY_EMAIL,
+#      GRAFANA_ADMIN_PASSWORD, ALERTMANAGER_WEBHOOK_URL). All required values
+#      fail closed: compose refuses to start without them.
+#   2. docker compose -f deploy/docker-compose.prod.yml up -d --build
+#   3. Run the restore drill once per month: scripts/restore-drill.sh
+#
+# Layout
+#   edge:    caddy terminates TLS on :80/:443 and proxies to server.
+#   backend: app, pooler, databases, observability - internal network only.
+#   Operator tooling (grafana UI, alertmanager API) is published loopback-only
+#   on ::1/127.0.0.1; nothing else is reachable from outside the host.
+#
+# Secrets are interpolated from the compose environment; POSTGRES_PASSWORD and
+# TOKEN_SECRET must be URL-safe strings (alnum/hex), which gen-secrets.sh
+# guarantees. TOKEN_SECRET must be >= 32 bytes.
+
+name: fitcore-prod
+
+x-app-limits: &app-limits
+  mem_limit: 512m
+  cpus: 2
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-sidecar-limits: &sidecar-limits
+  mem_limit: 128m
+  cpus: 0.5
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-db-limits: &db-limits
+  mem_limit: 1024m
+  cpus: 2
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-grafana-limits: &grafana-limits
+  mem_limit: 256m
+  cpus: 0.5
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    environment:
+      FITCORE_DOMAIN: ${FITCORE_DOMAIN:?set FITCORE_DOMAIN in .env}
+      CADDY_EMAIL: ${CADDY_EMAIL:?set CADDY_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+    networks: [edge, backend]
+    <<: *sidecar-limits
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    image: ghcr.io/pandax185/fitcore:${FITCORE_TAG:-main}
+    restart: unless-stopped
+    environment:
+      FITCORE_ENV: production
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://fitcore:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@pgbouncer:5432/fitcore?sslmode=disable
+      TOKEN_SECRET: ${TOKEN_SECRET:?set TOKEN_SECRET in .env}
+      TOKEN_TTL: ${TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-168h}
+      REDIS_URL: redis://redis:6379/0
+      # Global (Redis-backed) auth rate limiter: same per-IP budget across
+      # replicas. Never set RATE_LIMIT_DISABLED here.
+      RATE_LIMIT_REDIS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks: [backend]
+    <<: *app-limits
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.migrate
+    restart: "no"
+    environment:
+      # Migrations run directly against postgres (not through the pooler):
+      # DDL must not share pooled connections.
+      DATABASE_URL: postgres://fitcore:${POSTGRES_PASSWORD:?}@postgres:5432/fitcore?sslmode=disable
+    command: ["-command", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    <<: *sidecar-limits
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fitcore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: fitcore
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitcore -d fitcore"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [backend]
+    <<: *db-limits
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p3
+    restart: unless-stopped
+    environment:
+      DB_USER: fitcore
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?}
+      DB_HOST: postgres
+      DB_NAME: fitcore
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: session
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "20"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=$${DB_PASSWORD} psql -h 127.0.0.1 -U $${DB_USER} -d $${DB_NAME} -c 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 4s
+      retries: 15
+      start_period: 10s
+    networks: [backend]
+    <<: *sidecar-limits
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # AOF ON: revocations and rate-limit state are security state; losing them
+    # on a server restart would silently accept revoked tokens.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [backend]
+    <<: *sidecar-limits
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [backend]
+    <<: *sidecar-limits
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://fitcore:${POSTGRES_PASSWORD:?}@postgres:5432/fitcore?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    <<: *sidecar-limits
+
+  pgbouncer-exporter:
+    image: billimek/pgbouncer-exporter:2.5.0
+    restart: unless-stopped
+    environment:
+      PGBOUNCER_DSN: postgres://fitcore:${POSTGRES_PASSWORD:?}@pgbouncer:5432/fitcore?sslmode=disable
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    networks: [backend]
+    <<: *sidecar-limits
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      server:
+        condition: service_healthy
+    networks: [backend]
+    <<: *app-limits
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      # Operator UI only, loopback
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks: [backend]
+    <<: *grafana-limits
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    environment:
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
+    volumes:
+      - ./alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
+    entrypoint: ["/etc/alertmanager/entrypoint.sh"]
+    command: []
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks: [backend]
+    <<: *sidecar-limits
+
+networks:
+  backend:
+    internal: true
+  edge:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  caddy_data:
+  caddy_config:

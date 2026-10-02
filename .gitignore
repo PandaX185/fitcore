@@ -1,6 +1,7 @@
 # Environment and secrets
 .env*
 !.env.example
+!.env.prod.example
 
 # Binaries and build output
 bin/

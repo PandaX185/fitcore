@@ -8,9 +8,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/fitcore ./cmd/ser
 
 # Runtime stage
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk add --no-cache ca-certificates tzdata wget \
     && adduser -D -u 10001 fitcore
 COPY --from=build /out/fitcore /usr/local/bin/fitcore
 USER fitcore
 EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+    CMD wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1
 ENTRYPOINT ["fitcore"]

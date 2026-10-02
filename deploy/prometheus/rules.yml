@@ -19,6 +19,24 @@ groups:
           summary: "Redis is down or unmonitored"
           description: "The redis scrape target is down, or no redis job is configured in Prometheus."
 
+      - alert: PostgresDown
+        expr: absent(up{job="postgres"}) or up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres is down or unmonitored"
+          description: "The postgres exporter is not scrapeable."
+
+      - alert: PgbouncerDown
+        expr: absent(up{job="pgbouncer"}) or up{job="pgbouncer"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pgbouncer is down or unmonitored"
+          description: "The pgbouncer exporter is not scrapeable."
+
       - alert: FitCoreHighErrorRate
         expr: |
           sum(rate(fitcore_http_requests_total{status=~"5.."}[5m]))
