@@ -7,11 +7,11 @@ import (
 )
 
 const (
-	seedBranches   = 5
-	seedMembers    = 300 // members per branch ("hundreds of members")
+	seedBranches   = 100
+	seedMembers    = 500 
 	seedPackages   = 4
-	seedClasses    = 40 // classes per branch — total capacity far exceeds members so bookings never saturate during load
-	seedConcurrent = 16
+	seedClasses    = 80 
+	seedConcurrent = 80
 )
 
 type fixture struct {
